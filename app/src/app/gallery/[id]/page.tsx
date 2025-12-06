@@ -49,6 +49,7 @@ export default function GalleryPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedBucketId, setSelectedBucketId] = useState<string | null>(null)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [isImageExpanded, setIsImageExpanded] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -106,6 +107,17 @@ export default function GalleryPage() {
   useEffect(() => {
     setCurrentImageIndex(0)
   }, [selectedBucketId])
+
+  // Handle ESC key to close expanded image
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isImageExpanded) {
+        setIsImageExpanded(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isImageExpanded])
 
   // Handle scroll navigation
   const handleScroll = (direction: 'up' | 'down') => {
@@ -202,7 +214,8 @@ export default function GalleryPage() {
                 <img
                   src={currentImage.s3Url}
                   alt={currentImage.label || currentImage.filename}
-                  className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-lg"
+                  className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-lg cursor-zoom-in hover:shadow-xl transition-shadow"
+                  onClick={() => setIsImageExpanded(true)}
                 />
               </div>
 
@@ -331,6 +344,26 @@ export default function GalleryPage() {
           </div>
         </div>
       </div>
+
+      {/* Expanded Image Overlay */}
+      {isImageExpanded && currentImage && (
+        <>
+          {/* Backdrop fade */}
+          <div
+            className="fixed inset-0 bg-white/60 backdrop-blur-sm z-40"
+            onClick={() => setIsImageExpanded(false)}
+          />
+          {/* Expanded Image */}
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-12 pointer-events-none">
+            <img
+              src={currentImage.s3Url}
+              alt={currentImage.label || currentImage.filename}
+              className="max-w-full max-h-full object-contain shadow-2xl rounded-lg pointer-events-auto cursor-zoom-out"
+              onClick={() => setIsImageExpanded(false)}
+            />
+          </div>
+        </>
+      )}
     </div>
   )
 }
