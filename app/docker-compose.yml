@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: pal-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: pal
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        mkdir -p /data/keyfile
+        cp /tmp/mongodb.key /data/keyfile/mongodb.key
+        chmod 400 /data/keyfile/mongodb.key
+        chown mongodb:mongodb /data/keyfile/mongodb.key
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /data/keyfile/mongodb.key
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-keyfile/mongodb.key:/tmp/mongodb.key:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb-init:
+    image: mongo:7
+    container_name: pal-mongodb-init
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    command: >
+      bash -c "
+      mongosh --host mongodb:27017 -u admin -p admin123 --authenticationDatabase admin --eval '
+        try {
+          const status = rs.status();
+          if (status.ok === 1) {
+            print(\"Replica set already initialized\");
+          }
+        } catch (e) {
+          if (e.codeName === \"NotYetInitialized\") {
+            const result = rs.initiate({
+              _id: \"rs0\",
+              members: [{ _id: 0, host: \"mongodb:27017\" }]
+            });
+            print(\"Replica set initialized:\", result);
+          } else {
+            throw e;
+          }
+        }
+      '
+      "
+    restart: "no"
+
+  # Optional: Mongo Express for database management UI
+  mongo-express:
+    image: mongo-express:latest
+    container_name: pal-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin123@mongodb:27017/
+      ME_CONFIG_BASICAUTH: false
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin123
+    depends_on:
+      - mongodb
+
+volumes:
+  mongodb_data:
