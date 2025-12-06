@@ -5,17 +5,16 @@
  * Usage: npm run test:cluster -- /path/to/your/images.zip
  * 
  * This script:
- * 1. Extracts a zip file to a temp directory
+ * 1. Extracts a zip file to a directory next to the zip
  * 2. Labels images using Gemini
  * 3. Generates embeddings
  * 4. Clusters similar images
- * 5. Outputs results to console
+ * 5. Copies images into categorized directories
  */
 
 import 'dotenv/config';
-import { readFileSync, mkdirSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, extname, basename } from 'path';
-import { tmpdir } from 'os';
+import { readFileSync, mkdirSync, existsSync, readdirSync, statSync, copyFileSync } from 'fs';
+import { join, dirname, basename } from 'path';
 import AdmZip from 'adm-zip';
 import pLimit from 'p-limit';
 
@@ -80,20 +79,19 @@ function getMimeType(filename: string): string {
  * Check if file should be skipped (hidden files, macOS resource forks, etc.)
  */
 function shouldSkipFile(filename: string): boolean {
-    const basename = filename.split('/').pop() || filename;
+    const base = filename.split('/').pop() || filename;
 
     // Skip macOS resource fork files (._*)
-    if (basename.startsWith('._')) return true;
+    if (base.startsWith('._')) return true;
 
     // Skip hidden files
-    if (basename.startsWith('.')) return true;
+    if (base.startsWith('.')) return true;
 
-    // Skip macOS system files
-    if (basename === '.DS_Store') return true;
-    if (basename === '__MACOSX') return true;
+    // Skip macOS __MACOSX directory
+    if (filename.includes('__MACOSX')) return true;
 
     // Skip Thumbs.db (Windows)
-    if (basename.toLowerCase() === 'thumbs.db') return true;
+    if (base.toLowerCase() === 'thumbs.db') return true;
 
     return false;
 }
@@ -124,6 +122,9 @@ function getAllFiles(dir: string): string[] {
 
     const entries = readdirSync(dir);
     for (const entry of entries) {
+        // Skip hidden directories
+        if (entry.startsWith('.') || entry === '__MACOSX') continue;
+
         const fullPath = join(dir, entry);
         const stat = statSync(fullPath);
 
@@ -135,6 +136,17 @@ function getAllFiles(dir: string): string[] {
     }
 
     return files;
+}
+
+/**
+ * Sanitize cluster name for use as directory name
+ */
+function sanitizeDirectoryName(name: string): string {
+    return name
+        .replace(/[<>:"/\\|?*]/g, '_')  // Remove invalid chars
+        .replace(/\s+/g, '_')            // Replace spaces with underscores
+        .replace(/_+/g, '_')             // Collapse multiple underscores
+        .slice(0, 50);                   // Limit length
 }
 
 async function main() {
@@ -164,11 +176,16 @@ async function main() {
     console.log(`Input: ${inputPath}`);
 
     let extractDir: string;
+    let outputBaseDir: string;
 
     // Check if input is a zip file or directory
     if (inputPath.endsWith('.zip')) {
-        // Extract zip to temp directory
-        extractDir = join(tmpdir(), `pal-test-${Date.now()}`);
+        // Extract zip to a directory next to the zip file
+        const zipDir = dirname(inputPath);
+        const zipName = basename(inputPath, '.zip');
+        extractDir = join(zipDir, `${zipName}_extracted`);
+        outputBaseDir = join(zipDir, `${zipName}_clustered`);
+
         mkdirSync(extractDir, { recursive: true });
 
         console.log(`📦 Extracting zip to: ${extractDir}\n`);
@@ -177,6 +194,7 @@ async function main() {
         zip.extractAllTo(extractDir, true);
     } else {
         extractDir = inputPath;
+        outputBaseDir = join(dirname(inputPath), `${basename(inputPath)}_clustered`);
     }
 
     // Find all media files
@@ -185,7 +203,7 @@ async function main() {
 
     for (const filePath of allFiles) {
         const filename = basename(filePath);
-        const mediaType = getMediaType(filename);
+        const mediaType = getMediaType(filePath);
 
         if (mediaType) {
             mediaFiles.push({
@@ -286,7 +304,7 @@ async function main() {
         const labels = clusterFiles.map(f => f.label || '').filter(Boolean);
 
         // Generate cluster name
-        let name = `Cluster ${cluster.clusterIndex + 1}`;
+        let name = `Cluster_${cluster.clusterIndex + 1}`;
         if (labels.length > 0) {
             try {
                 name = await generateClusterName(labels);
@@ -301,10 +319,31 @@ async function main() {
         });
     }
 
+    // ========== STAGE 4: ORGANIZE INTO DIRECTORIES ==========
+    console.log('\n📁 Stage 4: Organizing images into directories...\n');
+
+    mkdirSync(outputBaseDir, { recursive: true });
+
+    for (const cluster of clusters) {
+        const clusterDirName = sanitizeDirectoryName(cluster.name);
+        const clusterDir = join(outputBaseDir, clusterDirName);
+        mkdirSync(clusterDir, { recursive: true });
+
+        console.log(`   📂 ${clusterDirName}/`);
+
+        for (const file of cluster.files) {
+            const destPath = join(clusterDir, file.filename);
+            copyFileSync(file.path, destPath);
+            console.log(`      └─ ${file.filename}`);
+        }
+    }
+
     // ========== RESULTS ==========
     console.log('\n' + '='.repeat(60));
     console.log('📋 CLUSTERING RESULTS');
     console.log('='.repeat(60) + '\n');
+
+    console.log(`📂 Output directory: ${outputBaseDir}\n`);
 
     for (const cluster of clusters) {
         console.log(`\n🗂️  ${cluster.name} (${cluster.files.length} images)`);
@@ -320,6 +359,7 @@ async function main() {
 
     console.log('\n' + '='.repeat(60));
     console.log(`✅ Clustering complete: ${clusters.length} clusters from ${filesWithEmbeddings.length} images`);
+    console.log(`📂 Images organized in: ${outputBaseDir}`);
     console.log('='.repeat(60) + '\n');
 
     // Summary table
