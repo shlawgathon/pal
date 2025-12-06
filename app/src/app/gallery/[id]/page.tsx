@@ -51,6 +51,7 @@ export default function GalleryPage() {
   const [selectedBucketId, setSelectedBucketId] = useState<string | null>(null)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [isImageExpanded, setIsImageExpanded] = useState(false)
+  const [lastDirection, setLastDirection] = useState<'up' | 'down' | 'left' | 'right' | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -120,24 +121,49 @@ export default function GalleryPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isImageExpanded])
 
-  // Handle scroll navigation
+  // Handle image scroll navigation within a bucket
   const handleScroll = (direction: 'up' | 'down') => {
     if (!selectedBucket) return
 
     if (direction === 'up' && currentImageIndex > 0) {
+      setLastDirection(direction)
       setCurrentImageIndex(currentImageIndex - 1)
     } else if (direction === 'down' && currentImageIndex < selectedBucket.images.length - 1) {
+      setLastDirection(direction)
       setCurrentImageIndex(currentImageIndex + 1)
+    }
+  }
+
+  // Handle bucket navigation
+  const handleBucketScroll = (direction: 'left' | 'right') => {
+    const currentIndex = buckets.findIndex(b => b.id === selectedBucketId)
+    if (currentIndex === -1) return
+
+    if (direction === 'left' && currentIndex > 0) {
+      setLastDirection(direction)
+      setSelectedBucketId(buckets[currentIndex - 1].id)
+    } else if (direction === 'right' && currentIndex < buckets.length - 1) {
+      setLastDirection(direction)
+      setSelectedBucketId(buckets[currentIndex + 1].id)
     }
   }
 
   // Handle wheel scroll
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault()
+
+    // Vertical scroll - navigate between images in current bucket
     if (e.deltaY > 30) {
       handleScroll('down')
     } else if (e.deltaY < -30) {
       handleScroll('up')
+    }
+
+    // Horizontal scroll - navigate between buckets
+    if (e.deltaX > 30) {
+      handleBucketScroll('right')
+    } else if (e.deltaX < -30) {
+      handleBucketScroll('left')
     }
   }
 
@@ -201,7 +227,7 @@ export default function GalleryPage() {
       <div className="flex-1 flex overflow-hidden">
         {/* Center Panel - Single Image with Scroll */}
         <div
-          className="flex-1 flex flex-col items-center justify-center relative"
+          className="flex-1 flex flex-col relative overflow-hidden"
           onWheel={handleWheel}
         >
           {selectedBucket && currentImage ? (
@@ -216,20 +242,31 @@ export default function GalleryPage() {
                 </button>
               )}
 
-              {/* Main Image */}
-              <div className="relative max-w-[60%] max-h-[70%]">
-                <img
-                  src={currentImage.s3Url}
-                  alt={currentImage.label || currentImage.filename}
-                  className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-lg cursor-zoom-in hover:shadow-xl transition-shadow"
-                  onClick={() => setIsImageExpanded(true)}
-                />
-              </div>
+              {/* Main Image - with animation wrapper */}
+              <div className="absolute inset-0 flex items-center justify-center p-8">
+                <div
+                  key={`${selectedBucketId}-${currentImageIndex}`}
+                  className={`
+                    flex flex-col items-center
+                    ${lastDirection === 'up' ? 'animate-slide-in-from-top' : ''}
+                    ${lastDirection === 'down' ? 'animate-slide-in-from-bottom' : ''}
+                    ${lastDirection === 'left' ? 'animate-slide-in-from-left' : ''}
+                    ${lastDirection === 'right' ? 'animate-slide-in-from-right' : ''}
+                  `}
+                >
+                  <img
+                    src={currentImage.s3Url}
+                    alt={currentImage.label || currentImage.filename}
+                    className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-lg cursor-zoom-in hover:shadow-xl transition-shadow"
+                    onClick={() => setIsImageExpanded(true)}
+                  />
 
-              {/* Image Counter */}
-              <div className="mt-6 flex items-center gap-2 text-muted-foreground">
-                <span className="text-3xl font-light">{currentImageIndex + 1}</span>
-                <span className="text-lg">/ {selectedBucket.images.length}</span>
+                  {/* Image Counter */}
+                  <div className="mt-6 flex items-center gap-2 text-muted-foreground">
+                    <span className="text-3xl font-light">{currentImageIndex + 1}</span>
+                    <span className="text-lg">/ {selectedBucket.images.length}</span>
+                  </div>
+                </div>
               </div>
 
               {/* Down Arrow */}
@@ -243,15 +280,17 @@ export default function GalleryPage() {
               )}
             </>
           ) : (
-            <div className="text-muted-foreground text-center">
-              {isProcessing ? (
-                <div className="space-y-3">
-                  <Loader2 className="w-8 h-8 animate-spin mx-auto" />
-                  <p>Processing images...</p>
-                </div>
-              ) : (
-                <p>Select a bucket to view images</p>
-              )}
+            <div className="flex items-center justify-center h-full">
+              <div className="text-muted-foreground text-center">
+                {isProcessing ? (
+                  <div className="space-y-3">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto" />
+                    <p>Processing images...</p>
+                  </div>
+                ) : (
+                  <p>Select a bucket to view images</p>
+                )}
+              </div>
             </div>
           )}
         </div>
