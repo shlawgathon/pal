@@ -7,7 +7,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 // Models
 const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 const textModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-001' });
+const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
 
 /**
  * Generate a descriptive label for an image

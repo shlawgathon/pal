@@ -56,9 +56,33 @@ function getMimeType(filename: string): string {
 }
 
 /**
+ * Check if file should be skipped (hidden files, macOS resource forks, etc.)
+ */
+function shouldSkipFile(filename: string): boolean {
+    const basename = filename.split('/').pop() || filename;
+
+    // Skip macOS resource fork files (._*)
+    if (basename.startsWith('._')) return true;
+
+    // Skip hidden files
+    if (basename.startsWith('.')) return true;
+
+    // Skip macOS __MACOSX directory contents
+    if (filename.includes('__MACOSX')) return true;
+
+    // Skip Thumbs.db (Windows)
+    if (basename.toLowerCase() === 'thumbs.db') return true;
+
+    return false;
+}
+
+/**
  * Determine if file is image or video
  */
 function getMediaType(filename: string): 'image' | 'video' | null {
+    // Skip system/hidden files
+    if (shouldSkipFile(filename)) return null;
+
     const ext = '.' + (filename.toLowerCase().split('.').pop() || '');
 
     if (SUPPORTED_IMAGE_EXTENSIONS.includes(ext)) {
