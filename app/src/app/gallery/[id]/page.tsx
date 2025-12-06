@@ -351,11 +351,11 @@ export default function GalleryPage() {
             </div>
           </div>
           {/* Expanded Image */}
-          <div className="fixed inset-y-0 left-0 right-80 z-50 flex items-center justify-center p-12 pointer-events-none">
+          <div className="fixed inset-0 right-80 z-50 flex items-center justify-center p-8 pointer-events-none">
             <img
               src={currentImage.s3Url}
               alt={currentImage.label || currentImage.filename}
-              className="max-w-full max-h-full object-contain shadow-2xl rounded-lg pointer-events-auto cursor-zoom-out"
+              className="w-full h-full object-contain shadow-2xl rounded-lg pointer-events-auto cursor-zoom-out"
               onClick={() => setIsImageExpanded(false)}
             />
           </div>
