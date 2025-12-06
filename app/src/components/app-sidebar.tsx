@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, Settings, Images, Sun, Moon } from "lucide-react"
+import { Images, Sun, Moon } from "lucide-react"
 import { useTheme } from "next-themes"
 import {
     Sidebar,
@@ -21,22 +21,9 @@ import { Button } from "@/components/ui/button"
 
 const navItems = [
     {
-        title: "Home",
-        href: "/",
-        icon: Home,
-    },
-    {
         title: "Galleries",
         href: "/",
         icon: Images,
-    },
-]
-
-const settingsItems = [
-    {
-        title: "Settings",
-        href: "/settings",
-        icon: Settings,
     },
 ]
 
@@ -63,27 +50,6 @@ export function AppSidebar() {
                     <SidebarGroupContent>
                         <SidebarMenu>
                             {navItems.map((item) => {
-                                const isActive = pathname === item.href
-                                return (
-                                    <SidebarMenuItem key={item.title}>
-                                        <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
-                                            <Link href={item.href}>
-                                                <item.icon className="h-4 w-4" />
-                                                <span>{item.title}</span>
-                                            </Link>
-                                        </SidebarMenuButton>
-                                    </SidebarMenuItem>
-                                )
-                            })}
-                        </SidebarMenu>
-                    </SidebarGroupContent>
-                </SidebarGroup>
-
-                <SidebarGroup>
-                    <SidebarGroupLabel>Settings</SidebarGroupLabel>
-                    <SidebarGroupContent>
-                        <SidebarMenu>
-                            {settingsItems.map((item) => {
                                 const isActive = pathname === item.href
                                 return (
                                     <SidebarMenuItem key={item.title}>
