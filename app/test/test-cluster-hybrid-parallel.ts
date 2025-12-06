@@ -21,9 +21,9 @@ import {
     generateEmbedding,
     compareImagesSemantically,
     generateClusterName
-} from './src/lib/gemini';
-import { cosineSimilarity } from './src/lib/processing/clustering';
-import { SUPPORTED_IMAGE_EXTENSIONS } from './src/lib/types';
+} from '../src/lib/gemini';
+import { cosineSimilarity } from '../src/lib/processing/clustering';
+import { SUPPORTED_IMAGE_EXTENSIONS } from '../src/lib/types';
 
 // Parallelization limits
 const LABEL_CONCURRENCY = 10;    // Fast, can do many

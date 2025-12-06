@@ -1,13 +1,13 @@
 #!/usr/bin/env npx tsx
 /**
- * Adaptive Hierarchical Clustering Test
+ * Semantic Vision Clustering Test
  * 
- * Usage: npm run test:cluster-adaptive -- /path/to/your/images.zip
+ * Usage: npm run test:cluster-semantic -- /path/to/your/images.zip
  * 
- * This script uses an adaptive approach:
- * 1. Automatically finds optimal threshold using silhouette score
- * 2. Hierarchically splits clusters that are too diverse
- * 3. Creates sub-buckets for large clusters with internal variance
+ * This script uses Gemini's vision model to directly compare images
+ * semantically (visually), rather than comparing text embeddings.
+ * 
+ * Note: This is O(n²) in API calls, so it's slower but more accurate.
  */
 
 import 'dotenv/config';
@@ -18,31 +18,30 @@ import pLimit from 'p-limit';
 
 import {
     generateImageLabel,
-    generateEmbedding,
+    compareImagesSemantically,
     generateClusterName
-} from './src/lib/gemini';
-import { cosineSimilarity } from './src/lib/processing/clustering';
+} from '../src/lib/gemini';
 import {
     SUPPORTED_IMAGE_EXTENSIONS,
     SUPPORTED_VIDEO_EXTENSIONS,
-    PROCESSING_CONCURRENCY
-} from './src/lib/types';
+} from '../src/lib/types';
 
-const limit = pLimit(PROCESSING_CONCURRENCY);
+// Lower concurrency for vision API to avoid rate limits
+const limit = pLimit(3);
 
 // Configuration
-const MIN_CLUSTER_SIZE = 2;           // Minimum images per cluster
-const MAX_CLUSTER_SIZE = 15;          // Split clusters larger than this
-const MIN_INTRA_SIMILARITY = 0.80;    // Split if avg similarity below this
-const THRESHOLD_SEARCH_STEPS = 20;    // How many thresholds to try
+const MIN_CLUSTER_SIZE = 2;
+const MAX_CLUSTER_SIZE = 12;
+const MIN_INTRA_SIMILARITY = 0.65;
+const SILHOUETTE_THRESHOLD_STEPS = 15;
 
 interface MediaFile {
     path: string;
     filename: string;
     mediaType: 'image' | 'video';
     mimeType: string;
+    buffer?: Buffer;
     label?: string;
-    embedding?: number[];
 }
 
 interface Cluster {
@@ -52,7 +51,6 @@ interface Cluster {
     indices: number[];
     avgSimilarity: number;
     minSimilarity: number;
-    parentId?: string;
 }
 
 // ========== UTILITY FUNCTIONS ==========
@@ -63,10 +61,8 @@ function getMimeType(filename: string): string {
         jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
         gif: 'image/gif', webp: 'image/webp', heic: 'image/heic',
         heif: 'image/heif', bmp: 'image/bmp', tiff: 'image/tiff',
-        mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
-        mkv: 'video/x-matroska', webm: 'video/webm', m4v: 'video/x-m4v',
     };
-    return mimeTypes[ext] || 'application/octet-stream';
+    return mimeTypes[ext] || 'image/jpeg';
 }
 
 function shouldSkipFile(filename: string): boolean {
@@ -103,21 +99,7 @@ function sanitizeDirectoryName(name: string): string {
     return name.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').slice(0, 50);
 }
 
-// ========== SIMILARITY FUNCTIONS ==========
-
-function buildSimilarityMatrix(embeddings: number[][]): number[][] {
-    const n = embeddings.length;
-    const matrix: number[][] = Array(n).fill(null).map(() => Array(n).fill(0));
-    for (let i = 0; i < n; i++) {
-        matrix[i][i] = 1.0;
-        for (let j = i + 1; j < n; j++) {
-            const sim = cosineSimilarity(embeddings[i], embeddings[j]);
-            matrix[i][j] = sim;
-            matrix[j][i] = sim;
-        }
-    }
-    return matrix;
-}
+// ========== CLUSTERING FUNCTIONS ==========
 
 function getClusterStats(indices: number[], simMatrix: number[][]): { avg: number; min: number } {
     if (indices.length < 2) return { avg: 1.0, min: 1.0 };
@@ -133,11 +115,6 @@ function getClusterStats(indices: number[], simMatrix: number[][]): { avg: numbe
     return { avg: count > 0 ? sum / count : 1.0, min };
 }
 
-// ========== CLUSTERING ALGORITHMS ==========
-
-/**
- * Union-Find clustering at a specific threshold
- */
 function clusterAtThreshold(simMatrix: number[][], threshold: number): number[] {
     const n = simMatrix.length;
     const parent: number[] = Array.from({ length: n }, (_, i) => i);
@@ -171,32 +148,26 @@ function clusterAtThreshold(simMatrix: number[][], threshold: number): number[] 
     return assignments;
 }
 
-/**
- * Calculate silhouette score for a clustering
- * Higher is better (range -1 to 1)
- */
 function calculateSilhouetteScore(simMatrix: number[][], assignments: number[]): number {
     const n = simMatrix.length;
     const numClusters = Math.max(...assignments) + 1;
 
-    if (numClusters === 1 || numClusters === n) return -1; // Edge cases
+    if (numClusters === 1 || numClusters >= n * 0.8) return -1;
 
     let totalScore = 0;
 
     for (let i = 0; i < n; i++) {
         const myCluster = assignments[i];
 
-        // Calculate a(i) = average dissimilarity to own cluster
         let ownSum = 0, ownCount = 0;
         for (let j = 0; j < n; j++) {
             if (i !== j && assignments[j] === myCluster) {
-                ownSum += (1 - simMatrix[i][j]); // Convert similarity to dissimilarity
+                ownSum += (1 - simMatrix[i][j]);
                 ownCount++;
             }
         }
         const a = ownCount > 0 ? ownSum / ownCount : 0;
 
-        // Calculate b(i) = minimum average dissimilarity to other clusters
         let minOtherAvg = Infinity;
         for (let c = 0; c < numClusters; c++) {
             if (c === myCluster) continue;
@@ -213,7 +184,6 @@ function calculateSilhouetteScore(simMatrix: number[][], assignments: number[]):
         }
         const b = minOtherAvg === Infinity ? 0 : minOtherAvg;
 
-        // Silhouette for this point
         const s = Math.max(a, b) > 0 ? (b - a) / Math.max(a, b) : 0;
         totalScore += s;
     }
@@ -221,15 +191,9 @@ function calculateSilhouetteScore(simMatrix: number[][], assignments: number[]):
     return totalScore / n;
 }
 
-/**
- * Find optimal threshold using silhouette score
- */
 function findOptimalThreshold(simMatrix: number[][]): { threshold: number; score: number; numClusters: number } {
-    let bestThreshold = 0.8;
-    let bestScore = -1;
-    let bestNumClusters = 1;
+    let best = { threshold: 0.6, score: -1, numClusters: 1 };
 
-    // Get similarity range
     let minSim = 1, maxSim = 0;
     for (let i = 0; i < simMatrix.length; i++) {
         for (let j = i + 1; j < simMatrix.length; j++) {
@@ -238,34 +202,24 @@ function findOptimalThreshold(simMatrix: number[][]): { threshold: number; score
         }
     }
 
-    const step = (maxSim - minSim) / THRESHOLD_SEARCH_STEPS;
-
-    console.log(`   Searching for optimal threshold between ${minSim.toFixed(3)} and ${maxSim.toFixed(3)}...`);
+    const step = (maxSim - minSim) / SILHOUETTE_THRESHOLD_STEPS;
 
     for (let t = minSim + step; t <= maxSim - step; t += step) {
         const assignments = clusterAtThreshold(simMatrix, t);
         const numClusters = Math.max(...assignments) + 1;
 
-        // Skip if too few or too many clusters
         if (numClusters < 2 || numClusters >= simMatrix.length * 0.7) continue;
 
         const score = calculateSilhouetteScore(simMatrix, assignments);
 
-        if (score > bestScore) {
-            bestScore = score;
-            bestThreshold = t;
-            bestNumClusters = numClusters;
+        if (score > best.score) {
+            best = { threshold: t, score, numClusters };
         }
     }
 
-    console.log(`   Best threshold: ${bestThreshold.toFixed(3)} (silhouette: ${bestScore.toFixed(3)}, ${bestNumClusters} clusters)`);
-
-    return { threshold: bestThreshold, score: bestScore, numClusters: bestNumClusters };
+    return best;
 }
 
-/**
- * Recursively split a cluster if it's too large or diverse
- */
 function splitClusterIfNeeded(
     cluster: Cluster,
     allFiles: MediaFile[],
@@ -274,54 +228,38 @@ function splitClusterIfNeeded(
 ): Cluster[] {
     const { indices, avgSimilarity } = cluster;
 
-    // Base cases: don't split
     if (indices.length <= MIN_CLUSTER_SIZE) return [cluster];
     if (indices.length <= MAX_CLUSTER_SIZE && avgSimilarity >= MIN_INTRA_SIMILARITY) return [cluster];
-    if (depth > 3) return [cluster]; // Prevent infinite recursion
+    if (depth > 2) return [cluster];
 
-    console.log(`   🔀 Splitting cluster "${cluster.name}" (${indices.length} images, avg sim: ${avgSimilarity.toFixed(3)})`);
+    console.log(`   🔀 Splitting "${cluster.name}" (${indices.length} images, sim: ${avgSimilarity.toFixed(2)})`);
 
-    // Build sub-matrix for this cluster
-    const subMatrix: number[][] = indices.map(i =>
-        indices.map(j => simMatrix[i][j])
-    );
-
-    // Find optimal threshold for splitting this cluster
+    const subMatrix: number[][] = indices.map(i => indices.map(j => simMatrix[i][j]));
     const { threshold } = findOptimalThreshold(subMatrix);
-
-    // Use a slightly higher threshold to actually split
-    const splitThreshold = Math.min(threshold + 0.02, 0.98);
+    const splitThreshold = Math.min(threshold + 0.03, 0.95);
     const subAssignments = clusterAtThreshold(subMatrix, splitThreshold);
     const numSubClusters = Math.max(...subAssignments) + 1;
 
-    if (numSubClusters <= 1) {
-        // Can't split further
-        return [cluster];
-    }
+    if (numSubClusters <= 1) return [cluster];
 
-    // Create sub-clusters
     const subClusters: Cluster[] = [];
 
     for (let c = 0; c < numSubClusters; c++) {
         const subIndices = subAssignments
-            .map((assignment, idx) => assignment === c ? indices[idx] : -1)
+            .map((a, idx) => a === c ? indices[idx] : -1)
             .filter(idx => idx !== -1);
 
         if (subIndices.length === 0) continue;
 
         const stats = getClusterStats(subIndices, simMatrix);
-        const subCluster: Cluster = {
+        subClusters.push(...splitClusterIfNeeded({
             id: `${cluster.id}.${c + 1}`,
             name: `${cluster.name} (${c + 1})`,
             files: subIndices.map(i => allFiles[i]),
             indices: subIndices,
             avgSimilarity: stats.avg,
             minSimilarity: stats.min,
-            parentId: cluster.id,
-        };
-
-        // Recursively check if this sub-cluster needs splitting
-        subClusters.push(...splitClusterIfNeeded(subCluster, allFiles, simMatrix, depth + 1));
+        }, allFiles, simMatrix, depth + 1));
     }
 
     return subClusters;
@@ -333,7 +271,7 @@ async function main() {
     const args = process.argv.slice(2);
 
     if (args.length === 0) {
-        console.error('Usage: npm run test:cluster-adaptive -- /path/to/images.zip');
+        console.error('Usage: npm run test:cluster-semantic -- /path/to/images.zip');
         process.exit(1);
     }
 
@@ -345,12 +283,13 @@ async function main() {
     }
 
     if (!process.env.GEMINI_API_KEY) {
-        console.error('Error: GEMINI_API_KEY environment variable is required');
+        console.error('Error: GEMINI_API_KEY required');
         process.exit(1);
     }
 
-    console.log('🚀 PAL Adaptive Hierarchical Clustering\n');
-    console.log(`Input: ${inputPath}\n`);
+    console.log('🚀 PAL Semantic Vision Clustering\n');
+    console.log(`Input: ${inputPath}`);
+    console.log('⚠️  Note: This uses O(n²) vision API calls for direct image comparison\n');
 
     let extractDir: string;
     let outputBaseDir: string;
@@ -359,27 +298,26 @@ async function main() {
         const zipDir = dirname(inputPath);
         const zipName = basename(inputPath, '.zip');
         extractDir = join(zipDir, `${zipName}_extracted`);
-        outputBaseDir = join(zipDir, `${zipName}_adaptive_clustered`);
+        outputBaseDir = join(zipDir, `${zipName}_semantic_clustered`);
         mkdirSync(extractDir, { recursive: true });
         console.log(`📦 Extracting to: ${extractDir}\n`);
         new AdmZip(inputPath).extractAllTo(extractDir, true);
     } else {
         extractDir = inputPath;
-        outputBaseDir = join(dirname(inputPath), `${basename(inputPath)}_adaptive_clustered`);
+        outputBaseDir = join(dirname(inputPath), `${basename(inputPath)}_semantic_clustered`);
     }
 
-    // Find media files
+    // Find image files
     const allFiles = getAllFiles(extractDir);
-    const mediaFiles: MediaFile[] = allFiles
-        .filter(f => getMediaType(f))
+    const imageFiles: MediaFile[] = allFiles
+        .filter(f => getMediaType(f) === 'image')
         .map(f => ({
             path: f,
             filename: basename(f),
-            mediaType: getMediaType(f)!,
+            mediaType: 'image' as const,
             mimeType: getMimeType(basename(f)),
         }));
 
-    const imageFiles = mediaFiles.filter(f => f.mediaType === 'image');
     console.log(`📸 Found ${imageFiles.length} images\n`);
 
     if (imageFiles.length < 2) {
@@ -387,45 +325,87 @@ async function main() {
         process.exit(1);
     }
 
-    // Stage 1: Labeling
-    console.log('🏷️  Stage 1: Labeling images...\n');
+    // Load all image buffers
+    console.log('📥 Loading image buffers...\n');
+    for (const file of imageFiles) {
+        file.buffer = readFileSync(file.path);
+    }
+
+    // Stage 1: Generate labels for naming (lightweight)
+    console.log('🏷️  Stage 1: Generating labels for naming...\n');
     await Promise.all(imageFiles.map((file, i) =>
         limit(async () => {
             try {
-                const buffer = readFileSync(file.path);
-                file.label = await generateImageLabel(buffer, file.mimeType);
+                file.label = await generateImageLabel(file.buffer!, file.mimeType);
                 console.log(`   [${i + 1}/${imageFiles.length}] ${file.filename}`);
-            } catch (e) {
-                console.error(`   ❌ ${file.filename}:`, e);
-                file.label = 'Image';
+            } catch {
+                file.label = file.filename;
             }
         })
     ));
 
-    // Stage 2: Embeddings
-    console.log('\n📊 Stage 2: Generating embeddings...\n');
-    await Promise.all(imageFiles.map((file, i) =>
+    // Stage 2: Semantic pairwise comparison
+    console.log('\n🔍 Stage 2: Semantic pairwise comparison using Gemini Vision...\n');
+
+    const n = imageFiles.length;
+    const totalPairs = (n * (n - 1)) / 2;
+    const simMatrix: number[][] = Array(n).fill(null).map(() => Array(n).fill(0));
+
+    // Initialize diagonal
+    for (let i = 0; i < n; i++) simMatrix[i][i] = 1.0;
+
+    // Build all pairs
+    const pairs: { i: number; j: number }[] = [];
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            pairs.push({ i, j });
+        }
+    }
+
+    console.log(`   Comparing ${totalPairs} image pairs...\n`);
+
+    let completed = 0;
+    await Promise.all(pairs.map(({ i, j }) =>
         limit(async () => {
-            if (!file.label) return;
             try {
-                file.embedding = await generateEmbedding(file.label);
-                console.log(`   [${i + 1}/${imageFiles.length}] ${file.filename} ✓`);
+                const result = await compareImagesSemantically(
+                    imageFiles[i].buffer!,
+                    imageFiles[i].mimeType,
+                    imageFiles[j].buffer!,
+                    imageFiles[j].mimeType
+                );
+                simMatrix[i][j] = result.similarity;
+                simMatrix[j][i] = result.similarity;
             } catch (e) {
-                console.error(`   ❌ ${file.filename}:`, e);
+                console.error(`   ❌ Failed: ${imageFiles[i].filename} vs ${imageFiles[j].filename}`);
+                simMatrix[i][j] = 0.5;
+                simMatrix[j][i] = 0.5;
+            }
+
+            completed++;
+            if (completed % 10 === 0 || completed === totalPairs) {
+                const pct = Math.round((completed / totalPairs) * 100);
+                console.log(`   Progress: ${completed}/${totalPairs} (${pct}%)`);
             }
         })
     ));
 
-    const filesWithEmbeddings = imageFiles.filter(f => f.embedding?.length);
-    const embeddings = filesWithEmbeddings.map(f => f.embedding!);
+    // Show stats
+    let minSim = 1, maxSim = 0, sumSim = 0;
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            minSim = Math.min(minSim, simMatrix[i][j]);
+            maxSim = Math.max(maxSim, simMatrix[i][j]);
+            sumSim += simMatrix[i][j];
+        }
+    }
+    console.log(`\n   Similarity range: ${minSim.toFixed(2)} - ${maxSim.toFixed(2)} (avg: ${(sumSim / totalPairs).toFixed(2)})`);
 
-    // Stage 3: Build similarity matrix
-    console.log('\n🔗 Stage 3: Building similarity matrix...\n');
-    const simMatrix = buildSimilarityMatrix(embeddings);
-
-    // Stage 4: Find optimal initial clustering
-    console.log('🎯 Stage 4: Finding optimal clustering...\n');
+    // Stage 3: Optimal clustering
+    console.log('\n🎯 Stage 3: Finding optimal clustering...\n');
     const { threshold, numClusters } = findOptimalThreshold(simMatrix);
+    console.log(`   Optimal threshold: ${threshold.toFixed(3)} → ${numClusters} initial clusters`);
+
     const initialAssignments = clusterAtThreshold(simMatrix, threshold);
 
     // Build initial clusters
@@ -436,75 +416,81 @@ async function main() {
     });
 
     let clusters: Cluster[] = [];
-    let clusterCounter = 0;
+    let counter = 0;
 
     for (const [_, indices] of clusterGroups) {
         const stats = getClusterStats(indices, simMatrix);
-        const labels = indices.map(i => filesWithEmbeddings[i].label || '').filter(Boolean);
+        const labels = indices.map(i => imageFiles[i].label || '').filter(Boolean);
 
-        let name = `Cluster_${++clusterCounter}`;
+        let name = `Cluster_${++counter}`;
         try {
             if (labels.length > 0) name = await generateClusterName(labels);
         } catch { }
 
         clusters.push({
-            id: String(clusterCounter),
+            id: String(counter),
             name,
-            files: indices.map(i => filesWithEmbeddings[i]),
+            files: indices.map(i => imageFiles[i]),
             indices,
             avgSimilarity: stats.avg,
             minSimilarity: stats.min,
         });
     }
 
-    // Stage 5: Hierarchical splitting
-    console.log('\n🌳 Stage 5: Hierarchical refinement...\n');
-    const refinedClusters: Cluster[] = [];
-
+    // Stage 4: Hierarchical refinement
+    console.log('\n🌳 Stage 4: Hierarchical refinement...\n');
+    const refined: Cluster[] = [];
     for (const cluster of clusters) {
-        const splitResult = splitClusterIfNeeded(cluster, filesWithEmbeddings, simMatrix);
-        refinedClusters.push(...splitResult);
+        refined.push(...splitClusterIfNeeded(cluster, imageFiles, simMatrix));
     }
 
-    // Generate better names for sub-clusters
-    console.log('\n📝 Generating cluster names...\n');
-    for (const cluster of refinedClusters) {
-        if (cluster.parentId) {
-            const labels = cluster.files.map(f => f.label || '').filter(Boolean);
+    // Generate names for sub-clusters
+    for (const c of refined) {
+        if (c.id.includes('.')) {
+            const labels = c.files.map(f => f.label || '').filter(Boolean);
             try {
-                cluster.name = await generateClusterName(labels);
+                c.name = await generateClusterName(labels);
             } catch { }
         }
     }
 
-    // Sort by size
-    refinedClusters.sort((a, b) => b.files.length - a.files.length);
+    refined.sort((a, b) => b.files.length - a.files.length);
 
-    // Stage 6: Organize files
-    console.log('📁 Stage 6: Organizing files...\n');
+    // Stage 5: Organize
+    console.log('\n📁 Stage 5: Organizing files...\n');
     mkdirSync(outputBaseDir, { recursive: true });
+
+    // Save similarity matrix
+    let csv = ',' + imageFiles.map(f => f.filename).join(',') + '\n';
+    for (let i = 0; i < n; i++) {
+        csv += imageFiles[i].filename + ',' + simMatrix[i].map(s => s.toFixed(3)).join(',') + '\n';
+    }
+    writeFileSync(join(outputBaseDir, 'semantic_similarity_matrix.csv'), csv);
 
     // Save report
     const report = {
-        totalImages: filesWithEmbeddings.length,
-        initialClusters: numClusters,
-        finalClusters: refinedClusters.length,
+        method: 'Gemini Vision Semantic Comparison',
+        totalImages: n,
+        totalComparisons: totalPairs,
         optimalThreshold: threshold,
-        clusters: refinedClusters.map(c => ({
+        initialClusters: numClusters,
+        finalClusters: refined.length,
+        clusters: refined.map(c => ({
             name: c.name,
             count: c.files.length,
             avgSimilarity: c.avgSimilarity,
+            minSimilarity: c.minSimilarity,
             files: c.files.map(f => f.filename),
         })),
     };
     writeFileSync(join(outputBaseDir, 'clustering_report.json'), JSON.stringify(report, null, 2));
 
-    for (const cluster of refinedClusters) {
+    for (const cluster of refined) {
         const dirName = sanitizeDirectoryName(cluster.name);
         const clusterDir = join(outputBaseDir, dirName);
         mkdirSync(clusterDir, { recursive: true });
 
-        console.log(`   📂 ${dirName}/ (${cluster.files.length} images, sim: ${cluster.avgSimilarity.toFixed(3)})`);
+        console.log(`   📂 ${dirName}/ (${cluster.files.length}, sim: ${cluster.avgSimilarity.toFixed(2)})`);
 
         for (const file of cluster.files) {
             copyFileSync(file.path, join(clusterDir, file.filename));
@@ -512,26 +498,27 @@ async function main() {
     }
 
     // Results
-    console.log('\n' + '='.repeat(65));
-    console.log('📋 ADAPTIVE CLUSTERING RESULTS');
-    console.log('='.repeat(65));
+    console.log('\n' + '='.repeat(70));
+    console.log('📋 SEMANTIC CLUSTERING RESULTS');
+    console.log('='.repeat(70));
     console.log(`\n📂 Output: ${outputBaseDir}`);
+    console.log(`🔍 Method: Direct Gemini Vision comparison (${totalPairs} comparisons)`);
     console.log(`🎯 Optimal threshold: ${threshold.toFixed(3)}`);
-    console.log(`📊 Initial clusters: ${numClusters} → Final: ${refinedClusters.length}\n`);
+    console.log(`📊 Clusters: ${numClusters} initial → ${refined.length} final\n`);
 
-    console.log('┌' + '─'.repeat(35) + '┬' + '─'.repeat(7) + '┬' + '─'.repeat(10) + '┬' + '─'.repeat(9) + '┐');
-    console.log('│ Cluster                           │ Count │ Avg Sim  │ Min Sim │');
-    console.log('├' + '─'.repeat(35) + '┼' + '─'.repeat(7) + '┼' + '─'.repeat(10) + '┼' + '─'.repeat(9) + '┤');
+    console.log('┌' + '─'.repeat(38) + '┬' + '─'.repeat(7) + '┬' + '─'.repeat(10) + '┬' + '─'.repeat(10) + '┐');
+    console.log('│ Cluster                              │ Count │ Avg Sim  │ Min Sim  │');
+    console.log('├' + '─'.repeat(38) + '┼' + '─'.repeat(7) + '┼' + '─'.repeat(10) + '┼' + '─'.repeat(10) + '┤');
 
-    for (const c of refinedClusters) {
-        const name = c.name.slice(0, 33).padEnd(33);
+    for (const c of refined) {
+        const name = c.name.slice(0, 36).padEnd(36);
         const count = String(c.files.length).padStart(5);
         const avg = c.avgSimilarity.toFixed(3).padStart(8);
-        const min = c.minSimilarity.toFixed(3).padStart(7);
+        const min = c.minSimilarity.toFixed(3).padStart(8);
         console.log(`│ ${name} │ ${count} │ ${avg} │ ${min} │`);
     }
 
-    console.log('└' + '─'.repeat(35) + '┴' + '─'.repeat(7) + '┴' + '─'.repeat(10) + '┴' + '─'.repeat(9) + '┘\n');
+    console.log('└' + '─'.repeat(38) + '┴' + '─'.repeat(7) + '┴' + '─'.repeat(10) + '┴' + '─'.repeat(10) + '┘\n');
     console.log(`✅ Complete! Check ${outputBaseDir}\n`);
 }
 

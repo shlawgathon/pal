@@ -22,16 +22,16 @@ import {
     generateImageLabel,
     generateEmbedding,
     generateClusterName
-} from './src/lib/gemini';
+} from '../src/lib/gemini';
 import {
     kMeansClustering,
     findOptimalK
-} from './src/lib/processing/clustering';
+} from '../src/lib/processing/clustering';
 import {
     SUPPORTED_IMAGE_EXTENSIONS,
     SUPPORTED_VIDEO_EXTENSIONS,
     PROCESSING_CONCURRENCY
-} from './src/lib/types';
+} from '../src/lib/types';
 
 // Concurrency limiter
 const limit = pLimit(PROCESSING_CONCURRENCY);
