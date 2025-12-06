@@ -82,6 +82,7 @@ export async function GET(
         return NextResponse.json({
             job: {
                 id: job.id,
+                name: job.name,
                 status: job.status,
                 totalFiles: job.totalFiles,
                 processedFiles: job.processedFiles,

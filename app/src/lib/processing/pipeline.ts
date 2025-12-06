@@ -16,14 +16,16 @@ import {
 import { ELO_INITIAL_SCORE, ELO_K_FACTOR } from '../types';
 import type { MediaFile, Bucket } from '@prisma/client';
 
-// Parallelization limits
-const LABEL_CONCURRENCY = 10;
-const COMPARE_CONCURRENCY = 6;
-const RANK_CONCURRENCY = 3;
+// Parallelization limits - high concurrency for faster processing
+const LABEL_CONCURRENCY = 25;
+const COMPARE_CONCURRENCY = 15;
+const RANK_CONCURRENCY = 8;
+const MERGE_CONCURRENCY = 20;
 
 const labelLimit = pLimit(LABEL_CONCURRENCY);
 const compareLimit = pLimit(COMPARE_CONCURRENCY);
 const rankLimit = pLimit(RANK_CONCURRENCY);
+const mergeLimit = pLimit(MERGE_CONCURRENCY);
 
 export interface ProcessingProgress {
     stage: string;
@@ -182,11 +184,105 @@ export async function processJob(
             await updateProgress('clustering', i + 1, imageFiles.length, file.filename);
         }
 
-        console.log(`[Pipeline] Created ${tempBuckets.length} image buckets`);
+        console.log(`[Pipeline] Created ${tempBuckets.length} image buckets (before merge)`);
+
+        // ========== STAGE 2.5: BUCKET MERGE SORT ==========
+        console.log(`\n[Pipeline] ═══ STAGE 2.5: BUCKET MERGE ═══`);
+        await updateProgress('merging', 0, tempBuckets.length, 'Comparing bucket representatives');
+
+        // Union-Find for merging similar buckets
+        const parent: number[] = tempBuckets.map((_, i) => i);
+        const rank: number[] = new Array(tempBuckets.length).fill(0);
+
+        const find = (x: number): number => {
+            if (parent[x] !== x) {
+                parent[x] = find(parent[x]); // Path compression
+            }
+            return parent[x];
+        };
+
+        const union = (x: number, y: number): void => {
+            const rootX = find(x);
+            const rootY = find(y);
+            if (rootX === rootY) return;
+
+            // Union by rank
+            if (rank[rootX] < rank[rootY]) {
+                parent[rootX] = rootY;
+            } else if (rank[rootX] > rank[rootY]) {
+                parent[rootY] = rootX;
+            } else {
+                parent[rootY] = rootX;
+                rank[rootX]++;
+            }
+        };
+
+        // Generate all pairs of buckets to compare
+        const bucketPairs: { i: number; j: number }[] = [];
+        for (let i = 0; i < tempBuckets.length; i++) {
+            for (let j = i + 1; j < tempBuckets.length; j++) {
+                bucketPairs.push({ i, j });
+            }
+        }
+
+        console.log(`[Pipeline] Comparing ${bucketPairs.length} bucket pairs in parallel`);
+
+        // Compare all bucket representative pairs in parallel
+        let mergeComparisons = 0;
+        const mergeResults = await Promise.all(
+            bucketPairs.map(({ i, j }) =>
+                mergeLimit(async () => {
+                    const bucket1 = tempBuckets[i];
+                    const bucket2 = tempBuckets[j];
+
+                    const isSame = await areSameTake(
+                        bucket1.representative.buffer, bucket1.representative.mimeType,
+                        bucket2.representative.buffer, bucket2.representative.mimeType
+                    );
+
+                    mergeComparisons++;
+                    if (mergeComparisons % 20 === 0 || mergeComparisons === bucketPairs.length) {
+                        console.log(`[Pipeline] Merge comparisons: ${mergeComparisons}/${bucketPairs.length}`);
+                    }
+
+                    return { i, j, isSame };
+                })
+            )
+        );
+
+        // Union all matching bucket pairs
+        let mergedCount = 0;
+        for (const { i, j, isSame } of mergeResults) {
+            if (isSame) {
+                console.log(`[Pipeline] Merging bucket #${i + 1} (${tempBuckets[i].representative.filename}) with bucket #${j + 1} (${tempBuckets[j].representative.filename})`);
+                union(i, j);
+                mergedCount++;
+            }
+        }
+
+        console.log(`[Pipeline] Merged ${mergedCount} bucket pairs`);
+
+        // Group buckets by their root
+        const mergedBuckets: Map<number, TempBucket> = new Map();
+        for (let i = 0; i < tempBuckets.length; i++) {
+            const root = find(i);
+            if (!mergedBuckets.has(root)) {
+                mergedBuckets.set(root, {
+                    representative: tempBuckets[root].representative,
+                    files: [],
+                });
+            }
+            // Add all files from this bucket to the merged bucket
+            mergedBuckets.get(root)!.files.push(...tempBuckets[i].files);
+        }
+
+        const finalBuckets = Array.from(mergedBuckets.values());
+        console.log(`[Pipeline] Final bucket count: ${finalBuckets.length} (merged from ${tempBuckets.length})`);
+        await updateProgress('merging', tempBuckets.length, tempBuckets.length, `Merged to ${finalBuckets.length} buckets`);
 
         // Create buckets in database with names
-        for (let i = 0; i < tempBuckets.length; i++) {
-            const tempBucket = tempBuckets[i];
+        for (let i = 0; i < finalBuckets.length; i++) {
+            const tempBucket = finalBuckets[i];
             const labels = tempBucket.files.map(f => f.label || '').filter(Boolean);
             const name = labels.length > 0 ? await generateClusterName(labels) : `Bucket ${i + 1}`;
 
@@ -326,6 +422,16 @@ export async function processJob(
 
             await updateProgress('ranking', b + 1, buckets.length, bucket.name);
         }
+
+        // ========== STAGE 4: ENHANCEMENT ==========
+        console.log(`\n[Pipeline] ═══ STAGE 4: ENHANCEMENT ═══`);
+        await prisma.job.update({ where: { id: jobId }, data: { status: 'enhancing', processedFiles: 0 } });
+        await updateProgress('enhancing', 0, 1, 'Starting image enhancement');
+
+        const { enhanceTopImages } = await import('./enhancer');
+        const enhancementResults = await enhanceTopImages(jobId, 3);
+        console.log(`[Pipeline] Enhanced ${enhancementResults.length} images`);
+        await updateProgress('enhancing', 1, 1, `Enhanced ${enhancementResults.length} images`);
 
         // ========== COMPLETE ==========
         console.log(`\n[Pipeline] ═══ COMPLETE ═══`);

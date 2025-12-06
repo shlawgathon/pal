@@ -25,6 +25,7 @@ interface Bucket {
 interface PartialResults {
   job: {
     id: string
+    name: string | null
     status: string
     totalFiles: number
     processedFiles: number
@@ -174,9 +175,15 @@ export default function GalleryPage() {
         <Link href="/" className="p-1.5 hover:bg-secondary rounded-lg transition-colors">
           <ArrowLeft className="w-4 h-4" />
         </Link>
-        <span className="text-sm font-medium">
-          {selectedBucket?.name || 'Select a bucket'}
-        </span>
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <span className="text-muted-foreground">
+            {data?.job.name || 'Gallery'}
+          </span>
+          {data?.job.name && <span className="text-muted-foreground">/</span>}
+          <span>
+            {selectedBucket?.name || 'Select a bucket'}
+          </span>
+        </div>
 
         {isProcessing && data && (
           <div className="ml-auto flex items-center gap-3">

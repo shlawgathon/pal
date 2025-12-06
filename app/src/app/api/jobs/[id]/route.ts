@@ -38,6 +38,7 @@ export async function GET(
 
         const summary: JobSummary = {
             id: job.id,
+            name: job.name || undefined,
             status: job.status as JobSummary['status'],
             totalFiles: job.totalFiles,
             processedFiles: job.processedFiles,
