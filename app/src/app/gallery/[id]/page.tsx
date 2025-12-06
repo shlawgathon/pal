@@ -330,9 +330,6 @@ export default function GalleryPage() {
                     className="w-full h-full object-contain"
                   />
                 )}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-white/90 to-transparent p-1.5">
-                  <div className="text-foreground text-xs font-medium truncate">{bucket.name}</div>
-                </div>
               </button>
             ))}
 
