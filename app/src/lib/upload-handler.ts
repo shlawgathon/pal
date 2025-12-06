@@ -100,11 +100,13 @@ function getMediaType(filename: string): 'image' | 'video' | null {
 export async function initUploadSession(
     ws: WebSocket,
     totalChunks: number,
-    totalSize: number
+    totalSize: number,
+    name?: string
 ): Promise<string> {
     // Create job in database
     const job = await prisma.job.create({
         data: {
+            name,
             status: 'uploading',
             totalFiles: 0,
             processedFiles: 0,

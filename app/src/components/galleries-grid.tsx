@@ -12,6 +12,7 @@ export function GalleriesGrid() {
   const [galleries, setGalleries] = useState<Gallery[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({})
 
   // Fetch galleries from API
   useEffect(() => {
@@ -23,7 +24,7 @@ export function GalleriesGrid() {
         // Convert jobs to gallery format
         const galleriesData: Gallery[] = jobs.map(job => ({
           id: job.id,
-          name: `Gallery ${job.id.slice(0, 8)}`,
+          name: job.name || `Gallery ${job.id.slice(0, 8)}`,
           createdAt: new Date(job.createdAt).toISOString(),
           status: job.status as Gallery['status'],
           progress: job.progress,
@@ -33,10 +34,34 @@ export function GalleriesGrid() {
         }))
 
         setGalleries(galleriesData)
+
+        // Fetch thumbnails for completed galleries
+        const completedGalleries = galleriesData.filter(g => g.status === 'completed')
+        for (const gallery of completedGalleries) {
+          fetchThumbnail(gallery.id)
+        }
       } catch (error) {
         console.error('Failed to fetch galleries:', error)
       } finally {
         setIsLoading(false)
+      }
+    }
+
+    const fetchThumbnail = async (jobId: string) => {
+      try {
+        const response = await fetch(`/api/jobs/${jobId}/partial`)
+        if (response.ok) {
+          const data = await response.json()
+          // Get the first image from the first bucket (highest ranked)
+          if (data.buckets.length > 0 && data.buckets[0].images.length > 0) {
+            setThumbnails(prev => ({
+              ...prev,
+              [jobId]: data.buckets[0].images[0].s3Url
+            }))
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to fetch thumbnail for ${jobId}:`, error)
       }
     }
 
@@ -66,10 +91,10 @@ export function GalleriesGrid() {
             {galleries.map((gallery) => (
               <Link key={gallery.id} href={`/gallery/${gallery.id}`} className="group block">
                 <div className="aspect-[4/3] relative rounded-lg overflow-hidden border border-border bg-secondary">
-                  {gallery.status === 'completed' && gallery.photos.length > 0 ? (
+                  {gallery.status === 'completed' && thumbnails[gallery.id] ? (
                     <img
-                      src={gallery.photos[0].mainPhoto.src || "/placeholder.svg"}
-                      alt={gallery.photos[0].mainPhoto.alt}
+                      src={thumbnails[gallery.id]}
+                      alt={gallery.name}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   ) : (

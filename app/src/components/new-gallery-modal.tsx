@@ -75,6 +75,7 @@ export function NewGalleryModal({ isOpen, onClose, onGalleryCreated }: NewGaller
 
       // Upload the ZIP file via WebSocket
       const jobId = await clientRef.current.uploadZip(selectedFile, {
+        name: galleryName,
         onProgress: (progress: UploadProgress | ProcessingProgress) => {
           if ('percent' in progress) {
             setUploadProgress(progress.percent)

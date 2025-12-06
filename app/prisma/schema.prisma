@@ -10,6 +10,7 @@ datasource db {
 // Processing job for uploaded content
 model Job {
   id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  name        String?   // Gallery name
   status      String    @default("uploading") // uploading, extracting, processing, clustering, ranking, enhancing, completed, failed
   totalFiles  Int       @default(0)
   processedFiles Int    @default(0)

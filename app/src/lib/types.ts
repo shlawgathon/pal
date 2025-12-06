@@ -23,6 +23,7 @@ export const SUPPORTED_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.mkv', '.web
 // Job summary for API responses
 export interface JobSummary {
     id: string;
+    name?: string;
     status: JobStatus;
     totalFiles: number;
     processedFiles: number;

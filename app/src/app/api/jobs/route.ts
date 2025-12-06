@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
 
         const jobSummaries: JobSummary[] = jobs.map(job => ({
             id: job.id,
+            name: job.name || undefined,
             status: job.status as JobSummary['status'],
             totalFiles: job.totalFiles,
             processedFiles: job.processedFiles,

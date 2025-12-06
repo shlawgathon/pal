@@ -115,7 +115,8 @@ export class PALClient {
      */
     async uploadZip(
         file: File,
-        callbacks?: {
+        options?: {
+            name?: string;
             onProgress?: ProgressCallback;
             onStatus?: StatusCallback;
             onError?: ErrorCallback;
@@ -134,6 +135,7 @@ export class PALClient {
                     type: 'init',
                     totalChunks,
                     totalSize: file.size,
+                    name: options?.name,
                 }));
             };
 
@@ -154,13 +156,13 @@ export class PALClient {
                                 this.currentJobId = message.jobId;
                             }
 
-                            callbacks?.onStatus?.(data.status);
+                            options?.onStatus?.(data.status);
 
                             // If upload stage, start sending chunks
                             if (data.status === 'uploading' && uploadedChunks === 0) {
                                 this.sendChunks(file, totalChunks, (chunksUploaded) => {
                                     uploadedChunks = chunksUploaded;
-                                    callbacks?.onProgress?.({
+                                    options?.onProgress?.({
                                         stage: 'uploading',
                                         percent: Math.round((chunksUploaded / totalChunks) * 100),
                                         chunksUploaded,
@@ -183,7 +185,7 @@ export class PALClient {
                                 received: number;
                                 total: number;
                             };
-                            callbacks?.onProgress?.({
+                            options?.onProgress?.({
                                 stage: 'uploading',
                                 percent: Math.round((data.received / data.total) * 100),
                                 chunksUploaded: data.received,
@@ -194,14 +196,14 @@ export class PALClient {
 
                         case 'processing_progress': {
                             const data = message.data as ProcessingProgress;
-                            callbacks?.onProgress?.(data);
+                            options?.onProgress?.(data);
                             break;
                         }
 
                         case 'error': {
                             const data = message.data as { message: string };
                             const error = new Error(data.message);
-                            callbacks?.onError?.(error);
+                            options?.onError?.(error);
                             reject(error);
                             this.disconnect();
                             break;
@@ -214,7 +216,7 @@ export class PALClient {
 
             this.ws.onerror = (event) => {
                 const error = new Error('WebSocket connection error');
-                callbacks?.onError?.(error);
+                options?.onError?.(error);
                 reject(error);
             };
 
@@ -222,7 +224,7 @@ export class PALClient {
                 // If closed unexpectedly before completion
                 if (!this.currentJobId) {
                     const error = new Error('Connection closed unexpectedly');
-                    callbacks?.onError?.(error);
+                    options?.onError?.(error);
                     reject(error);
                 }
             };

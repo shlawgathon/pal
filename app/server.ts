@@ -24,6 +24,7 @@ interface WSInitMessage {
     type: 'init';
     totalChunks: number;
     totalSize: number;
+    name?: string;
 }
 
 interface WSChunkMessage {
@@ -81,10 +82,11 @@ app.prepare().then(() => {
                         const jobId = await initUploadSession(
                             ws,
                             message.totalChunks,
-                            message.totalSize
+                            message.totalSize,
+                            message.name
                         );
                         state.jobId = jobId;
-                        console.log(`Upload session started: ${jobId}`);
+                        console.log(`Upload session started: ${jobId}${message.name ? ` (${message.name})` : ''}`);
                     }
                 }
             } catch (error) {
