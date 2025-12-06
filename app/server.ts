@@ -1,6 +1,6 @@
 /**
  * Custom server for Next.js with WebSocket support
- * 
+ *
  * This server combines:
  * - Express for HTTP requests
  * - Next.js for rendering
@@ -15,7 +15,7 @@ import { initUploadSession, handleChunk, cleanupSession } from './src/lib/upload
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
-const port = parseInt(process.env.PORT || '3000', 10);
+const port = parseInt(process.env.PORT || '3420', 10);
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
