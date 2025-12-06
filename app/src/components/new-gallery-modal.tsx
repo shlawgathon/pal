@@ -203,9 +203,9 @@ export function NewGalleryModal({ isOpen, onClose, onGalleryCreated }: NewGaller
                 </div>
               ) : (
                 <div>
-                  <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-secondary flex items-center justify-center">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-foreground flex items-center justify-center">
                     <svg
-                      className="w-6 h-6 text-muted-foreground"
+                      className="w-6 h-6 text-background"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
