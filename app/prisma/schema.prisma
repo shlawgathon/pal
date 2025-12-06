@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("MONGODB_URI")
+}
+
+// Processing job for uploaded content
+model Job {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  status      String    @default("uploading") // uploading, extracting, processing, clustering, ranking, enhancing, completed, failed
+  totalFiles  Int       @default(0)
+  processedFiles Int    @default(0)
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  // Relations
+  mediaFiles  MediaFile[]
+  buckets     Bucket[]
+}
+
+// Individual image or video file
+model MediaFile {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  jobId        String   @db.ObjectId
+  job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  filename     String
+  originalPath String
+  s3Key        String
+  s3Url        String
+  mediaType    String   // "image" or "video"
+  mimeType     String
+  sizeBytes    Int
+  
+  // AI-generated metadata
+  label        String?  // Descriptive sentence from Gemini
+  embedding    Float[]  // 1408-dimension embedding vector
+  
+  // Clustering
+  bucketId     String?  @db.ObjectId
+  bucket       Bucket?  @relation(fields: [bucketId], references: [id])
+  
+  // Tournament ranking
+  eloScore     Float    @default(1000)
+  isTopPick    Boolean  @default(false)
+  
+  // Enhancement
+  enhancedS3Key String?
+  enhancedS3Url String?
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Clustered group of similar media
+model Bucket {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  jobId     String      @db.ObjectId
+  job       Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  name      String      // Auto-generated descriptive name
+  centroid  Float[]     // Centroid embedding for the cluster
+  
+  mediaFiles MediaFile[]
+  matches    TournamentMatch[]
+  
+  createdAt  DateTime   @default(now())
+}
+
+// Tournament comparison record
+model TournamentMatch {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  bucketId   String   @db.ObjectId
+  bucket     Bucket   @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  
+  mediaType  String   // "image" or "video"
+  round      Int
+  
+  // Competitors
+  media1Id   String   @db.ObjectId
+  media2Id   String   @db.ObjectId
+  
+  // Result
+  winnerId   String   @db.ObjectId
+  reasoning  String   // Gemini's reasoning for the choice
+  
+  // ELO adjustments
+  media1EloChange Float
+  media2EloChange Float
+  
+  createdAt  DateTime @default(now())
+}

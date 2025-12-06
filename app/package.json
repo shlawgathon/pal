@@ -14,7 +14,7 @@
     "@aws-sdk/client-s3": "^3.946.0",
     "@aws-sdk/s3-request-presigner": "^3.946.0",
     "@google/generative-ai": "^0.24.1",
-    "@prisma/client": "^7.1.0",
+    "@prisma/client": "^6.19.0",
     "adm-zip": "^0.5.16",
     "dotenv": "^17.2.3",
     "next": "16.0.7",
@@ -34,7 +34,7 @@
     "@types/ws": "^8.18.1",
     "eslint": "^9",
     "eslint-config-next": "16.0.7",
-    "prisma": "^7.1.0",
+    "prisma": "^6.19.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"
