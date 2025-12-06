@@ -9,7 +9,10 @@
     "start": "node --import tsx server.ts",
     "lint": "eslint",
     "prisma:generate": "prisma generate",
-    "test:cluster": "npx tsx test-cluster.ts"
+    "test:cluster": "npx tsx test-cluster.ts",
+    "test:cluster-similarity": "npx tsx test-cluster-similarity.ts",
+    "test:cluster-adaptive": "npx tsx test-cluster-adaptive.ts",
+    "test:cluster-semantic": "npx tsx test-cluster-semantic.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.946.0",

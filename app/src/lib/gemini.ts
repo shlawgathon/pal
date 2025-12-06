@@ -72,6 +72,69 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 /**
+ * Compare two images semantically using Gemini vision
+ * Returns a similarity score from 0.0 to 1.0
+ */
+export async function compareImagesSemantically(
+    image1Buffer: Buffer,
+    image1MimeType: string,
+    image2Buffer: Buffer,
+    image2MimeType: string
+): Promise<{ similarity: number; reasoning: string }> {
+    const image1Part = {
+        inlineData: {
+            data: image1Buffer.toString('base64'),
+            mimeType: image1MimeType,
+        },
+    };
+
+    const image2Part = {
+        inlineData: {
+            data: image2Buffer.toString('base64'),
+            mimeType: image2MimeType,
+        },
+    };
+
+    const prompt = `You are an expert at visual similarity analysis. Compare these two images and rate how similar they are.
+
+Consider:
+- Subject matter (what's in the image)
+- Scene/setting/environment
+- Style and composition
+- Color palette and mood
+- Overall visual appearance
+
+Rate their similarity from 0.0 to 1.0 where:
+- 0.0-0.2: Completely different subjects/scenes
+- 0.3-0.4: Same general category but different subjects
+- 0.5-0.6: Similar subjects in different contexts
+- 0.7-0.8: Very similar subjects and scenes
+- 0.9-1.0: Nearly identical or same shot from different angle
+
+Respond in this exact JSON format:
+{
+  "similarity": 0.0 to 1.0,
+  "reasoning": "Brief explanation of similarity"
+}
+
+Respond with ONLY the JSON, no markdown.`;
+
+    try {
+        const result = await visionModel.generateContent([prompt, image1Part, image2Part]);
+        const response = await result.response;
+        const text = response.text().trim();
+
+        const parsed = JSON.parse(text.replace(/```json\n?|\n?```/g, ''));
+        return {
+            similarity: Math.min(1, Math.max(0, parsed.similarity || 0.5)),
+            reasoning: parsed.reasoning || '',
+        };
+    } catch {
+        return { similarity: 0.5, reasoning: 'Comparison failed' };
+    }
+}
+
+/**
  * Compare two images and determine winner for tournament
  */
 export async function compareImages(
