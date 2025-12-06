@@ -156,15 +156,15 @@ export default function GalleryPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
-      {/* Header */}
-      <header className="flex-shrink-0 h-14 border-b border-border flex items-center px-4 gap-4">
-        <Link href="/" className="p-2 hover:bg-secondary rounded-lg transition-colors">
-          <ArrowLeft className="w-5 h-5" />
+    <div className="flex flex-col h-[calc(100vh-3.5rem)] overflow-hidden">
+      {/* Sub-header showing bucket name and processing status */}
+      <div className="flex-shrink-0 h-12 border-b border-border flex items-center px-4 gap-4 bg-muted/30">
+        <Link href="/" className="p-1.5 hover:bg-secondary rounded-lg transition-colors">
+          <ArrowLeft className="w-4 h-4" />
         </Link>
-        <h1 className="text-lg font-medium">
-          {selectedBucket?.name || 'Gallery'}
-        </h1>
+        <span className="text-sm font-medium">
+          {selectedBucket?.name || 'Select a bucket'}
+        </span>
 
         {isProcessing && data && (
           <div className="ml-auto flex items-center gap-3">
@@ -176,7 +176,7 @@ export default function GalleryPage() {
             <span className="text-sm text-muted-foreground">{data.job.progress}%</span>
           </div>
         )}
-      </header>
+      </div>
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
@@ -321,8 +321,8 @@ export default function GalleryPage() {
                 key={bucket.id}
                 onClick={() => setSelectedBucketId(bucket.id)}
                 className={`flex-shrink-0 h-full aspect-[4/3] rounded-lg overflow-hidden relative transition-all ${selectedBucketId === bucket.id
-                    ? 'ring-2 ring-foreground'
-                    : 'opacity-60 hover:opacity-100'
+                  ? 'ring-2 ring-foreground'
+                  : 'opacity-60 hover:opacity-100'
                   }`}
               >
                 {bucket.images[0] && (

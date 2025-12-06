@@ -49,12 +49,8 @@ export function GalleriesGrid() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
+    <div className="p-6">
       <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-light text-foreground text-center">Photo Galleries</h1>
-        </div>
-
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="flex items-center gap-3 text-muted-foreground">

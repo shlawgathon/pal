@@ -58,5 +58,6 @@ Thumbs.db
 *.iml
 /app/test/EWR.zip
 /app/test/EWR-Conservative.zip
+/app/test/EWR-Conservative-Two.zip
 EWR-Conservative.zip
 

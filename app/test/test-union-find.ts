@@ -1,6 +1,6 @@
 /**
  * Union-Find Clustering Test
- * 
+ *
  * Algorithm:
  * 1. Compare function: LLM decides if two photos are same or different category
  * 2. Iterative clustering: For each photo, compare to existing bucket representatives
@@ -44,21 +44,20 @@ interface Bucket {
 async function comparePhotos(photo1: Photo, photo2: Photo): Promise<boolean> {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
 
-    const prompt = `You are comparing two photographs to determine if they belong to the SAME category or DIFFERENT categories.
+    const prompt = `We are trying to dedup a list of images. You are acting as an agent that is part of a larger system to rank takes of the same shot.
+    
+Your job is to decide whether these two photos are the exact same take of an image or if they are not.
 
-Consider:
-- Subject matter (what is the main subject?)
-- Setting/location type
-- Style/mood
-- Activity or scene type
+A photo is the same take if it is:
+- slightly different positioning of the same object, but obviously taken at the same time
+- slightly different shading, but obviously taken at the exact same time
 
-DO NOT consider:
-- Exact same photo (we know they're different photos)
-- Minor differences in angle or timing
+A photo is a different take if it is:
+- the same object but taken at a different time
+- a different object taken at a different time
 
-Question: Do these two photos belong to the SAME category or DIFFERENT categories?
-
-Respond with ONLY one word: "SAME" or "DIFFERENT"`;
+If you think that they are the exact same take, output the word "SAME". if they are different images, output the word "DIFFERENT".
+`;
 
     try {
         const result = await model.generateContent([

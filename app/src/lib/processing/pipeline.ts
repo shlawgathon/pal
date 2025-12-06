@@ -1,6 +1,6 @@
 /**
  * Main processing pipeline orchestrator
- * Uses hybrid two-phase clustering with parallelization
+ * Uses Union-Find clustering with LLM comparison and round-robin ranking
  */
 
 import pLimit from 'p-limit';
@@ -9,34 +9,21 @@ import { downloadFromS3 } from '../s3';
 import {
     generateImageLabel,
     generateVideoLabel,
-    generateEmbedding,
     generateClusterName,
-    compareImagesSemantically,
     compareImages,
     compareVideos
 } from '../gemini';
-import { cosineSimilarity } from './clustering';
-import { createTournamentRunner, type Competitor } from './tournament';
-import { enhanceTopImages } from './enhancer';
-import { ELO_INITIAL_SCORE } from '../types';
+import { ELO_INITIAL_SCORE, ELO_K_FACTOR } from '../types';
 import type { MediaFile, Bucket } from '@prisma/client';
 
 // Parallelization limits
 const LABEL_CONCURRENCY = 10;
-const EMBEDDING_CONCURRENCY = 10;
-const VISION_CONCURRENCY = 5;
-const TOURNAMENT_CONCURRENCY = 3;  // For running bucket tournaments in parallel
-const MATCH_CONCURRENCY = 5;       // For running matchups within a tournament
-const ENHANCE_CONCURRENCY = 3;
+const COMPARE_CONCURRENCY = 6;
+const RANK_CONCURRENCY = 3;
 
 const labelLimit = pLimit(LABEL_CONCURRENCY);
-const embeddingLimit = pLimit(EMBEDDING_CONCURRENCY);
-const visionLimit = pLimit(VISION_CONCURRENCY);
-const tournamentLimit = pLimit(TOURNAMENT_CONCURRENCY);
-const matchLimit = pLimit(MATCH_CONCURRENCY);  // Separate limit for matchups to prevent deadlock
-
-// Configuration
-const ROUGH_CLUSTER_THRESHOLD = 0.90;
+const compareLimit = pLimit(COMPARE_CONCURRENCY);
+const rankLimit = pLimit(RANK_CONCURRENCY);
 
 export interface ProcessingProgress {
     stage: string;
@@ -46,6 +33,48 @@ export interface ProcessingProgress {
 }
 
 export type ProgressCallback = (progress: ProcessingProgress) => void;
+
+/**
+ * Compare two images to determine if they are the same "take"
+ * Returns true if same, false if different
+ */
+async function areSameTake(
+    buffer1: Buffer, mimeType1: string,
+    buffer2: Buffer, mimeType2: string
+): Promise<boolean> {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+
+    const prompt = `We are trying to dedup a list of images. You are acting as an agent that is part of a larger system to rank takes of the same shot.
+    
+Your job is to decide whether these two photos are the exact same take of an image or if they are not.
+
+A photo is the same take if it is:
+- slightly different positioning of the same object, but obviously taken at the same time
+- slightly different shading, but obviously taken at the exact same time
+
+A photo is a different take if it is:
+- the same object but taken at a different time
+- a different object taken at a different time
+
+If you think that they are the exact same take, output the word "SAME". if they are different images, output the word "DIFFERENT".
+`;
+
+    try {
+        const result = await model.generateContent([
+            prompt,
+            { inlineData: { mimeType: mimeType1, data: buffer1.toString('base64') } },
+            { inlineData: { mimeType: mimeType2, data: buffer2.toString('base64') } },
+        ]);
+
+        const response = result.response.text().trim().toUpperCase();
+        return response.includes('SAME');
+    } catch (error) {
+        console.error(`[Pipeline] Compare error:`, error);
+        return false;
+    }
+}
 
 /**
  * Main processing pipeline for a job
@@ -58,13 +87,9 @@ export async function processJob(
         console.log(`[Pipeline] [${stage}] ${current}/${total} - ${message || ''}`);
         onProgress?.({ stage, current, total, message });
 
-        // Update database with progress
         await prisma.job.update({
             where: { id: jobId },
-            data: {
-                processedFiles: current,
-                totalFiles: total,
-            },
+            data: { processedFiles: current, totalFiles: total },
         });
     };
 
@@ -73,8 +98,6 @@ export async function processJob(
         console.log(`[Pipeline] Starting job: ${jobId}`);
         console.log(`${'='.repeat(60)}\n`);
 
-        await prisma.job.update({ where: { id: jobId }, data: { status: 'processing' } });
-
         const mediaFiles = await prisma.mediaFile.findMany({ where: { jobId } });
         console.log(`[Pipeline] Found ${mediaFiles.length} media files`);
         if (mediaFiles.length === 0) throw new Error('No media files found');
@@ -82,10 +105,10 @@ export async function processJob(
         // ========== STAGE 1: PARALLEL LABELING ==========
         console.log(`\n[Pipeline] ═══ STAGE 1: LABELING (${LABEL_CONCURRENCY} parallel) ═══`);
         await prisma.job.update({ where: { id: jobId }, data: { status: 'labeling', totalFiles: mediaFiles.length, processedFiles: 0 } });
-        await updateProgress('labeling', 0, mediaFiles.length, 'Starting parallel labeling');
+        await updateProgress('labeling', 0, mediaFiles.length, 'Starting');
 
         let labeledCount = 0;
-        const labeledFiles = await Promise.all(
+        const filesWithData = await Promise.all(
             mediaFiles.map(file =>
                 labelLimit(async () => {
                     const buffer = await downloadFromS3(file.s3Key);
@@ -95,112 +118,91 @@ export async function processJob(
 
                     await prisma.mediaFile.update({ where: { id: file.id }, data: { label } });
                     labeledCount++;
-                    updateProgress('labeling', labeledCount, mediaFiles.length, file.filename);
+                    console.log(`[Pipeline] Labeled ${labeledCount}/${mediaFiles.length}: ${file.filename} -> "${label}"`);
+                    await updateProgress('labeling', labeledCount, mediaFiles.length, file.filename);
 
                     return { ...file, label, buffer };
                 })
             )
         );
 
-        console.log(`[Pipeline] Labeling complete: ${labeledFiles.length} files labeled`);
+        console.log(`[Pipeline] Labeling complete`);
 
-        // ========== STAGE 2: PARALLEL EMBEDDING ==========
-        console.log(`\n[Pipeline] ═══ STAGE 2: EMBEDDING (${EMBEDDING_CONCURRENCY} parallel) ═══`);
-        await prisma.job.update({ where: { id: jobId }, data: { status: 'embedding', processedFiles: 0 } });
-        await updateProgress('embedding', 0, labeledFiles.length, 'Generating embeddings');
-
-        let embeddedCount = 0;
-        const embeddedFiles = await Promise.all(
-            labeledFiles.map(file =>
-                embeddingLimit(async () => {
-                    if (!file.label) return { ...file, embedding: [] as number[] };
-
-                    const embedding = await generateEmbedding(file.label);
-                    await prisma.mediaFile.update({ where: { id: file.id }, data: { embedding } });
-                    embeddedCount++;
-                    updateProgress('embedding', embeddedCount, labeledFiles.length, file.filename);
-
-                    return { ...file, embedding };
-                })
-            )
-        );
-
-        console.log(`[Pipeline] Embedding complete: ${embeddedFiles.length} files embedded`);
-
-        // ========== STAGE 3: HYBRID CLUSTERING ==========
-        console.log(`\n[Pipeline] ═══ STAGE 3: CLUSTERING ═══`);
+        // ========== STAGE 2: UNION-FIND CLUSTERING ==========
+        console.log(`\n[Pipeline] ═══ STAGE 2: UNION-FIND CLUSTERING ═══`);
         await prisma.job.update({ where: { id: jobId }, data: { status: 'clustering', processedFiles: 0 } });
-        await updateProgress('clustering', 0, 1, 'Phase 1: Rough clustering by embedding');
+        await updateProgress('clustering', 0, filesWithData.length, 'Starting union-find');
 
-        const filesWithEmbeddings = embeddedFiles.filter(f => f.embedding && f.embedding.length > 0);
-        const imageFiles = filesWithEmbeddings.filter(f => f.mediaType === 'image');
-        const videoFiles = filesWithEmbeddings.filter(f => f.mediaType === 'video');
+        const imageFiles = filesWithData.filter(f => f.mediaType === 'image');
+        const videoFiles = filesWithData.filter(f => f.mediaType === 'video');
 
-        // Phase 1: Rough clustering by embedding
-        const embeddings = imageFiles.map(f => f.embedding);
-        const roughAssignments = roughClusterByEmbedding(embeddings, ROUGH_CLUSTER_THRESHOLD);
-        const numRoughBuckets = Math.max(...roughAssignments) + 1;
+        // Union-find clustering for images
+        interface TempBucket {
+            representative: typeof imageFiles[0];
+            files: typeof imageFiles;
+        }
+        const tempBuckets: TempBucket[] = [];
 
-        updateProgress('clustering', 0, numRoughBuckets, `Phase 2: Refining ${numRoughBuckets} buckets with vision`);
+        for (let i = 0; i < imageFiles.length; i++) {
+            const file = imageFiles[i];
+            console.log(`[Pipeline] Clustering ${i + 1}/${imageFiles.length}: ${file.filename}`);
 
-        // Group by rough bucket
-        const roughBuckets = new Map<number, typeof imageFiles>();
-        roughAssignments.forEach((c, i) => {
-            if (!roughBuckets.has(c)) roughBuckets.set(c, []);
-            roughBuckets.get(c)!.push(imageFiles[i]);
-        });
+            let matchedBucket: TempBucket | null = null;
 
-        // Phase 2: Semantic refinement within each bucket (parallel)
-        const allBucketResults: { name: string; files: typeof imageFiles; avgSim: number }[] = [];
-        let bucketsDone = 0;
+            if (tempBuckets.length > 0) {
+                // Compare to ALL bucket representatives in parallel
+                const comparisonResults = await Promise.all(
+                    tempBuckets.map((bucket, bucketIndex) =>
+                        compareLimit(async () => {
+                            const isSame = await areSameTake(
+                                file.buffer, file.mimeType,
+                                bucket.representative.buffer, bucket.representative.mimeType
+                            );
+                            console.log(`    vs "${bucket.representative.filename}" = ${isSame ? 'SAME' : 'DIFFERENT'}`);
+                            return { bucketIndex, isSame };
+                        })
+                    )
+                );
 
-        await Promise.all(
-            Array.from(roughBuckets.entries()).map(async ([_, bucketFiles]) => {
-                if (bucketFiles.length === 1) {
-                    const labels = bucketFiles.map(f => f.label || '').filter(Boolean);
-                    const name = labels.length > 0 ? await generateClusterName(labels) : 'Single Image';
-                    allBucketResults.push({ name, files: bucketFiles, avgSim: 1.0 });
-                } else {
-                    // Build semantic similarity matrix for this bucket
-                    const matrix = await buildSemanticMatrix(bucketFiles);
-                    const threshold = getOptimalThreshold(matrix);
-                    const subAssignments = refineWithSemantic(matrix, threshold);
-                    const numSub = Math.max(...subAssignments) + 1;
-
-                    for (let s = 0; s < numSub; s++) {
-                        const subIndices = subAssignments.map((a, i) => a === s ? i : -1).filter(i => i !== -1);
-                        const subFiles = subIndices.map(i => bucketFiles[i]);
-                        const avgSim = calculateAvgSimilarity(subIndices, matrix);
-
-                        const labels = subFiles.map(f => f.label || '').filter(Boolean);
-                        const name = labels.length > 0 ? await generateClusterName(labels) : `Cluster ${allBucketResults.length + 1}`;
-
-                        allBucketResults.push({ name, files: subFiles, avgSim });
-                    }
+                // Find first matching bucket (by original order for consistency)
+                const matchResult = comparisonResults.find(r => r.isSame);
+                if (matchResult) {
+                    matchedBucket = tempBuckets[matchResult.bucketIndex];
                 }
+            }
 
-                bucketsDone++;
-                updateProgress('clustering', bucketsDone, numRoughBuckets, `Refined bucket ${bucketsDone}/${numRoughBuckets}`);
-            })
-        );
+            if (matchedBucket) {
+                matchedBucket.files.push(file);
+                console.log(`    -> Added to existing bucket (${matchedBucket.files.length} files)`);
+            } else {
+                tempBuckets.push({ representative: file, files: [file] });
+                console.log(`    -> Created new bucket #${tempBuckets.length}`);
+            }
 
-        // Create buckets in database
-        for (const result of allBucketResults) {
+            await updateProgress('clustering', i + 1, imageFiles.length, file.filename);
+        }
+
+        console.log(`[Pipeline] Created ${tempBuckets.length} image buckets`);
+
+        // Create buckets in database with names
+        for (let i = 0; i < tempBuckets.length; i++) {
+            const tempBucket = tempBuckets[i];
+            const labels = tempBucket.files.map(f => f.label || '').filter(Boolean);
+            const name = labels.length > 0 ? await generateClusterName(labels) : `Bucket ${i + 1}`;
+
+            console.log(`[Pipeline] Bucket ${i + 1}: "${name}" (${tempBucket.files.length} files)`);
+
             const bucket = await prisma.bucket.create({
-                data: {
-                    jobId,
-                    name: result.name,
-                    centroid: [], // Not using centroids with hybrid
-                },
+                data: { jobId, name, centroid: [] },
             });
 
             await prisma.mediaFile.updateMany({
-                where: { id: { in: result.files.map(f => f.id) } },
+                where: { id: { in: tempBucket.files.map(f => f.id) } },
                 data: { bucketId: bucket.id },
             });
         }
 
-        // Handle videos: put all in one bucket or cluster separately
+        // Handle videos: put all in one bucket
         if (videoFiles.length > 0) {
             const videoLabels = videoFiles.map(f => f.label || '').filter(Boolean);
             const videoName = videoLabels.length > 0 ? await generateClusterName(videoLabels) : 'Videos';
@@ -215,12 +217,8 @@ export async function processJob(
             });
         }
 
-        await updateProgress('clustering', numRoughBuckets, numRoughBuckets, `Created ${allBucketResults.length} image clusters`);
-
-        console.log(`[Pipeline] Clustering complete: ${allBucketResults.length} clusters created`);
-
-        // ========== STAGE 4: PARALLEL TOURNAMENT RANKING ==========
-        console.log(`\n[Pipeline] ═══ STAGE 4: RANKING (${TOURNAMENT_CONCURRENCY} parallel) ═══`);
+        // ========== STAGE 3: ROUND-ROBIN RANKING ==========
+        console.log(`\n[Pipeline] ═══ STAGE 3: ROUND-ROBIN RANKING ═══`);
         await prisma.job.update({ where: { id: jobId }, data: { status: 'ranking', processedFiles: 0 } });
 
         const buckets = await prisma.bucket.findMany({
@@ -228,263 +226,128 @@ export async function processJob(
             include: { mediaFiles: true },
         });
 
-        await updateProgress('ranking', 0, buckets.length, 'Running parallel tournaments');
+        await updateProgress('ranking', 0, buckets.length, 'Starting');
 
-        let tournamentsDone = 0;
-        await Promise.all(
-            buckets.map(bucket =>
-                tournamentLimit(async () => {
-                    const images = bucket.mediaFiles.filter(f => f.mediaType === 'image');
-                    if (images.length > 1) {
-                        await runBucketTournament(bucket, images, 'image');
-                    }
+        for (let b = 0; b < buckets.length; b++) {
+            const bucket = buckets[b];
+            const files = bucket.mediaFiles.filter(f => f.mediaType === 'image');
 
-                    const videos = bucket.mediaFiles.filter(f => f.mediaType === 'video');
-                    if (videos.length > 1) {
-                        await runBucketTournament(bucket, videos, 'video');
-                    }
+            console.log(`\n[Pipeline] Ranking bucket "${bucket.name}" (${files.length} images)`);
 
-                    tournamentsDone++;
-                    await updateProgress('ranking', tournamentsDone, buckets.length, bucket.name);
-                })
-            )
-        );
+            if (files.length < 2) {
+                console.log(`    Skipping (< 2 images)`);
+                await updateProgress('ranking', b + 1, buckets.length, bucket.name);
+                continue;
+            }
 
-        // Mark top 3 from each bucket
-        await Promise.all(
-            buckets.map(async bucket => {
-                const topImages = await prisma.mediaFile.findMany({
-                    where: { bucketId: bucket.id, mediaType: 'image' },
-                    orderBy: { eloScore: 'desc' },
-                    take: 3,
-                });
-                for (const img of topImages) {
-                    await prisma.mediaFile.update({ where: { id: img.id }, data: { isTopPick: true } });
+            // Initialize ELO scores
+            const eloScores = new Map<string, number>();
+            files.forEach(f => eloScores.set(f.id, ELO_INITIAL_SCORE));
+
+            // Generate all match pairs
+            const matches: { file1: typeof files[0]; file2: typeof files[0] }[] = [];
+            for (let i = 0; i < files.length; i++) {
+                for (let j = i + 1; j < files.length; j++) {
+                    matches.push({ file1: files[i], file2: files[j] });
                 }
+            }
 
-                const topVideos = await prisma.mediaFile.findMany({
-                    where: { bucketId: bucket.id, mediaType: 'video' },
-                    orderBy: { eloScore: 'desc' },
-                    take: 3,
-                });
-                for (const vid of topVideos) {
-                    await prisma.mediaFile.update({ where: { id: vid.id }, data: { isTopPick: true } });
-                }
-            })
-        );
+            console.log(`    Running ${matches.length} comparisons...`);
 
-        console.log(`[Pipeline] Ranking complete: ${buckets.length} buckets ranked`);
+            // Run matches with limited concurrency
+            let matchesCompleted = 0;
+            await Promise.all(
+                matches.map(({ file1, file2 }) =>
+                    rankLimit(async () => {
+                        try {
+                            const buffer1 = filesWithData.find(f => f.id === file1.id)?.buffer || await downloadFromS3(file1.s3Key);
+                            const buffer2 = filesWithData.find(f => f.id === file2.id)?.buffer || await downloadFromS3(file2.s3Key);
 
-        // ========== STAGE 5: PARALLEL ENHANCEMENT ==========
-        console.log(`\n[Pipeline] ═══ STAGE 5: ENHANCING ═══`);
-        await prisma.job.update({ where: { id: jobId }, data: { status: 'enhancing', processedFiles: 0 } });
-        await updateProgress('enhancing', 0, 1, 'Enhancing top picks');
+                            const result = await compareImages(
+                                buffer1, file1.mimeType, file1.label || '',
+                                buffer2, file2.mimeType, file2.label || ''
+                            );
 
-        await enhanceTopImages(jobId, 3);
+                            const winner = result.winner === 1 ? file1 : file2;
+                            const loser = result.winner === 1 ? file2 : file1;
 
-        await updateProgress('enhancing', 1, 1, 'Enhancement complete');
-        console.log(`[Pipeline] Enhancement complete`);
+                            // Update ELO
+                            const winnerElo = eloScores.get(winner.id) || ELO_INITIAL_SCORE;
+                            const loserElo = eloScores.get(loser.id) || ELO_INITIAL_SCORE;
+                            const K = ELO_K_FACTOR * result.confidence;
+                            const expectedWinner = 1 / (1 + Math.pow(10, (loserElo - winnerElo) / 400));
+                            const expectedLoser = 1 / (1 + Math.pow(10, (winnerElo - loserElo) / 400));
+
+                            eloScores.set(winner.id, winnerElo + K * (1 - expectedWinner));
+                            eloScores.set(loser.id, loserElo + K * (0 - expectedLoser));
+
+                            // Record match
+                            await prisma.tournamentMatch.create({
+                                data: {
+                                    bucketId: bucket.id,
+                                    mediaType: 'image',
+                                    round: 1,
+                                    media1Id: file1.id,
+                                    media2Id: file2.id,
+                                    winnerId: winner.id,
+                                    reasoning: result.reasoning,
+                                    media1EloChange: result.winner === 1 ? 16 : -16,
+                                    media2EloChange: result.winner === 2 ? 16 : -16,
+                                },
+                            });
+
+                            matchesCompleted++;
+                            if (matchesCompleted % 5 === 0 || matchesCompleted === matches.length) {
+                                console.log(`    Progress: ${matchesCompleted}/${matches.length}`);
+                            }
+                        } catch (error) {
+                            console.error(`    Match error:`, error);
+                            matchesCompleted++;
+                        }
+                    })
+                )
+            );
+
+            // Save ELO scores
+            await Promise.all(
+                Array.from(eloScores.entries()).map(([id, score]) =>
+                    prisma.mediaFile.update({ where: { id }, data: { eloScore: score } })
+                )
+            );
+
+            // Mark top 3 as top picks
+            const sorted = [...eloScores.entries()].sort((a, b) => b[1] - a[1]);
+            const top3 = sorted.slice(0, 3);
+            for (const [id] of top3) {
+                await prisma.mediaFile.update({ where: { id }, data: { isTopPick: true } });
+            }
+
+            console.log(`    Top 3: ${top3.map(([id, elo]) => `${files.find(f => f.id === id)?.filename} (${elo.toFixed(0)})`).join(', ')}`);
+
+            await updateProgress('ranking', b + 1, buckets.length, bucket.name);
+        }
 
         // ========== COMPLETE ==========
+        console.log(`\n[Pipeline] ═══ COMPLETE ═══`);
         await prisma.job.update({
             where: { id: jobId },
             data: { status: 'completed', completedAt: new Date() },
         });
 
-        updateProgress('complete', 1, 1, 'Job completed');
+        await updateProgress('complete', 1, 1, 'Job completed');
+        console.log(`[Pipeline] Job ${jobId} completed successfully\n`);
 
     } catch (error) {
-        console.error('Pipeline error:', error);
+        console.error(`[Pipeline] Error:`, error);
         await prisma.job.update({
             where: { id: jobId },
-            data: { status: 'failed', error: error instanceof Error ? error.message : 'Unknown error' },
+            data: {
+                status: 'failed',
+                error: error instanceof Error ? error.message : 'Unknown error',
+            },
         });
         throw error;
     }
-}
-
-// ========== HELPER FUNCTIONS ==========
-
-function roughClusterByEmbedding(embeddings: number[][], threshold: number): number[] {
-    const n = embeddings.length;
-    if (n === 0) return [];
-
-    const parent = Array.from({ length: n }, (_, i) => i);
-    const find = (x: number): number => parent[x] !== x ? (parent[x] = find(parent[x])) : x;
-
-    for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) {
-            if (cosineSimilarity(embeddings[i], embeddings[j]) >= threshold) {
-                parent[find(i)] = find(j);
-            }
-        }
-    }
-
-    const map = new Map<number, number>();
-    return Array.from({ length: n }, (_, i) => {
-        const root = find(i);
-        if (!map.has(root)) map.set(root, map.size);
-        return map.get(root)!;
-    });
-}
-
-async function buildSemanticMatrix(files: { buffer: Buffer; mimeType: string }[]): Promise<number[][]> {
-    const n = files.length;
-    const matrix = Array.from({ length: n }, () => Array(n).fill(0));
-    for (let i = 0; i < n; i++) matrix[i][i] = 1.0;
-
-    const pairs: { i: number; j: number }[] = [];
-    for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) pairs.push({ i, j });
-    }
-
-    await Promise.all(
-        pairs.map(({ i, j }) =>
-            visionLimit(async () => {
-                try {
-                    const r = await compareImagesSemantically(
-                        files[i].buffer, files[i].mimeType,
-                        files[j].buffer, files[j].mimeType
-                    );
-                    matrix[i][j] = matrix[j][i] = r.similarity;
-                } catch {
-                    matrix[i][j] = matrix[j][i] = 0.5;
-                }
-            })
-        )
-    );
-
-    return matrix;
-}
-
-function refineWithSemantic(matrix: number[][], threshold: number): number[] {
-    const n = matrix.length;
-    const parent = Array.from({ length: n }, (_, i) => i);
-    const find = (x: number): number => parent[x] !== x ? (parent[x] = find(parent[x])) : x;
-
-    for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) {
-            if (matrix[i][j] >= threshold) parent[find(i)] = find(j);
-        }
-    }
-
-    const map = new Map<number, number>();
-    return Array.from({ length: n }, (_, i) => {
-        const root = find(i);
-        if (!map.has(root)) map.set(root, map.size);
-        return map.get(root)!;
-    });
-}
-
-function getOptimalThreshold(matrix: number[][]): number {
-    const sims: number[] = [];
-    for (let i = 0; i < matrix.length; i++) {
-        for (let j = i + 1; j < matrix.length; j++) sims.push(matrix[i][j]);
-    }
-    if (sims.length === 0) return 0.7;
-    sims.sort((a, b) => a - b);
-    return Math.max(0.55, Math.min(0.85, sims[Math.floor(sims.length / 2)] + 0.05));
-}
-
-function calculateAvgSimilarity(indices: number[], matrix: number[][]): number {
-    if (indices.length < 2) return 1.0;
-    let sum = 0, count = 0;
-    for (let i = 0; i < indices.length; i++) {
-        for (let j = i + 1; j < indices.length; j++) {
-            sum += matrix[indices[i]][indices[j]];
-            count++;
-        }
-    }
-    return count > 0 ? sum / count : 1.0;
-}
-
-async function runBucketTournament(
-    bucket: Bucket,
-    files: MediaFile[],
-    mediaType: 'image' | 'video'
-): Promise<void> {
-    if (files.length < 2) {
-        console.log(`    [Tournament] Bucket "${bucket.name}" has ${files.length} ${mediaType}(s), skipping`);
-        return;
-    }
-
-    console.log(`    [Tournament] Starting "${bucket.name}" with ${files.length} ${mediaType}(s)`);
-
-    const competitors: (Competitor & { file: MediaFile })[] = files.map(f => ({
-        id: f.id,
-        eloScore: ELO_INITIAL_SCORE,
-        file: f,
-    }));
-
-    const tournamentType = files.length > 10 ? 'single-elimination' : 'round-robin';
-    console.log(`    [Tournament] Using ${tournamentType} format`);
-
-    const tournament = createTournamentRunner(competitors, { type: tournamentType });
-    const matchups = tournament.getNextMatchups();
-    console.log(`    [Tournament] Generated ${matchups.length} matchups`);
-
-    let matchesCompleted = 0;
-    const totalMatches = matchups.filter(([_, idx2]) => idx2 !== -1).length;
-
-    // Run matchups in parallel (limited concurrency)
-    await Promise.all(
-        matchups.map(([idx1, idx2]) =>
-            matchLimit(async () => {
-                if (idx2 === -1) return;
-
-                const comp1 = tournament.getCompetitor(idx1);
-                const comp2 = tournament.getCompetitor(idx2);
-
-                console.log(`      [Match] ${matchesCompleted + 1}/${totalMatches}: Comparing files...`);
-
-                try {
-                    const [buffer1, buffer2] = await Promise.all([
-                        downloadFromS3(comp1.file.s3Key),
-                        downloadFromS3(comp2.file.s3Key),
-                    ]);
-
-                    console.log(`      [Match] Downloaded files, calling Gemini...`);
-
-                    const result = mediaType === 'video'
-                        ? await compareVideos(buffer1, comp1.file.mimeType, comp1.file.label || '', buffer2, comp2.file.mimeType, comp2.file.label || '')
-                        : await compareImages(buffer1, comp1.file.mimeType, comp1.file.label || '', buffer2, comp2.file.mimeType, comp2.file.label || '');
-
-                    const winnerId = result.winner === 1 ? comp1.id : comp2.id;
-                    tournament.recordResult(idx1, idx2, winnerId, result.reasoning, result.confidence);
-
-                    await prisma.tournamentMatch.create({
-                        data: {
-                            bucketId: bucket.id,
-                            mediaType,
-                            round: 1,
-                            media1Id: comp1.id,
-                            media2Id: comp2.id,
-                            winnerId,
-                            reasoning: result.reasoning,
-                            media1EloChange: result.winner === 1 ? 16 : -16,
-                            media2EloChange: result.winner === 2 ? 16 : -16,
-                        },
-                    });
-
-                    matchesCompleted++;
-                    console.log(`      [Match] Completed ${matchesCompleted}/${totalMatches}, winner recorded`);
-                } catch (error) {
-                    console.error(`      [Match] ERROR in match:`, error);
-                    matchesCompleted++;
-                }
-            })
-        )
-    );
-
-    // Update ELO scores
-    console.log(`    [Tournament] Updating ELO scores...`);
-    const results = tournament.getResults();
-    await Promise.all(
-        results.rankedCompetitors.map(comp =>
-            prisma.mediaFile.update({ where: { id: comp.id }, data: { eloScore: comp.eloScore } })
-        )
-    );
-    console.log(`    [Tournament] Bucket "${bucket.name}" complete!`);
 }
 
 export { processJob as default };
