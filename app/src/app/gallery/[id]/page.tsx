@@ -265,8 +265,8 @@ export default function GalleryPage() {
               <button
                 key={bucket.id}
                 onClick={() => setSelectedBucketId(bucket.id)}
-                className={`flex-shrink-0 h-full aspect-[4/3] rounded-lg overflow-hidden relative transition-all ${selectedBucketId === bucket.id
-                  ? 'ring-2 ring-foreground'
+                className={`flex-shrink-0 h-full aspect-[4/3] overflow-hidden relative transition-all border-0 ${selectedBucketId === bucket.id
+                  ? 'opacity-100'
                   : 'opacity-60 hover:opacity-100'
                   }`}
               >
