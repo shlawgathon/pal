@@ -13,7 +13,8 @@
     "test:cluster-similarity": "npx tsx test-cluster-similarity.ts",
     "test:cluster-adaptive": "npx tsx test-cluster-adaptive.ts",
     "test:cluster-semantic": "npx tsx test-cluster-semantic.ts",
-    "test:cluster-hybrid": "npx tsx test-cluster-hybrid.ts"
+    "test:cluster-hybrid": "npx tsx test-cluster-hybrid.ts",
+    "test:cluster-hybrid-parallel": "npx tsx test-cluster-hybrid-parallel.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.946.0",

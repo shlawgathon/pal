@@ -1,12 +1,12 @@
 #!/usr/bin/env npx tsx
 /**
  * Hybrid Two-Phase Clustering
- * 
+ *
  * Usage: npm run test:cluster-hybrid -- /path/to/your/images.zip
- * 
+ *
  * Phase 1: Fast rough clustering using text embeddings (cheap, O(n) API calls)
  * Phase 2: Semantic vision comparisons ONLY within each bucket (expensive, but limited scope)
- * 
+ *
  * This dramatically reduces API calls while maintaining accuracy.
  * Example: 44 images in 4 buckets → ~220 comparisons instead of ~946
  */
@@ -34,9 +34,7 @@ const embeddingLimit = pLimit(PROCESSING_CONCURRENCY); // Fast, can parallelize
 const visionLimit = pLimit(3); // Slower, rate-limited
 
 // Configuration
-const ROUGH_CLUSTER_THRESHOLD = 0.70;  // Loose threshold for initial grouping
-const MIN_INTRA_SIMILARITY = 0.60;     // Split sub-buckets below this
-const MAX_BUCKET_SIZE = 15;            // Split buckets larger than this
+const ROUGH_CLUSTER_THRESHOLD = 0.90;  // Loose threshold for initial grouping
 
 interface MediaFile {
     path: string;
