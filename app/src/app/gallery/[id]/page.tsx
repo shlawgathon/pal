@@ -248,10 +248,50 @@ export default function GalleryPage() {
             </div>
           )}
         </div>
+      </div>
 
-        {/* Right Panel - Image Metadata */}
-        <div className="w-72 flex-shrink-0 border-l border-border bg-secondary/30 p-4 overflow-y-auto">
-          {currentImage ? (
+      {/* Bottom Panel - Bucket Thumbnails */}
+      <div className="flex-shrink-0 h-36 border-t border-border">
+        <div className="h-full overflow-x-auto">
+          <div className="flex gap-3 h-full px-4 py-3">
+            {buckets.map((bucket) => (
+              <button
+                key={bucket.id}
+                onClick={() => setSelectedBucketId(bucket.id)}
+                className={`flex-shrink-0 h-full aspect-[4/3] rounded-lg overflow-hidden relative transition-all ${selectedBucketId === bucket.id
+                  ? 'ring-2 ring-foreground'
+                  : 'opacity-60 hover:opacity-100'
+                  }`}
+              >
+                {bucket.images[0] && (
+                  <img
+                    src={bucket.images[0].s3Url}
+                    alt={bucket.name}
+                    className="w-full h-full object-contain"
+                  />
+                )}
+              </button>
+            ))}
+
+            {isProcessing && (
+              <div className="flex-shrink-0 h-full aspect-[4/3] rounded-lg flex items-center justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded Image Overlay */}
+      {isImageExpanded && currentImage && (
+        <>
+          {/* Backdrop fade */}
+          <div
+            className="fixed inset-0 bg-white/60 backdrop-blur-sm z-40"
+            onClick={() => setIsImageExpanded(false)}
+          />
+          {/* Metadata Sidebar */}
+          <div className="fixed right-0 top-0 bottom-0 w-80 bg-white border-l border-border shadow-2xl z-[60] p-6 overflow-y-auto pointer-events-auto">
             <div className="space-y-4">
               {/* Thumbnail strip */}
               <div className="space-y-2">
@@ -302,56 +342,9 @@ export default function GalleryPage() {
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-              Select an image to view details
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom Panel - Bucket Thumbnails */}
-      <div className="flex-shrink-0 h-36 border-t border-border">
-        <div className="h-full overflow-x-auto">
-          <div className="flex gap-3 h-full px-4 py-3">
-            {buckets.map((bucket) => (
-              <button
-                key={bucket.id}
-                onClick={() => setSelectedBucketId(bucket.id)}
-                className={`flex-shrink-0 h-full aspect-[4/3] rounded-lg overflow-hidden relative transition-all ${selectedBucketId === bucket.id
-                  ? 'ring-2 ring-foreground'
-                  : 'opacity-60 hover:opacity-100'
-                  }`}
-              >
-                {bucket.images[0] && (
-                  <img
-                    src={bucket.images[0].s3Url}
-                    alt={bucket.name}
-                    className="w-full h-full object-contain"
-                  />
-                )}
-              </button>
-            ))}
-
-            {isProcessing && (
-              <div className="flex-shrink-0 h-full aspect-[4/3] rounded-lg flex items-center justify-center">
-                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-              </div>
-            )}
           </div>
-        </div>
-      </div>
-
-      {/* Expanded Image Overlay */}
-      {isImageExpanded && currentImage && (
-        <>
-          {/* Backdrop fade */}
-          <div
-            className="fixed inset-0 bg-white/60 backdrop-blur-sm z-40"
-            onClick={() => setIsImageExpanded(false)}
-          />
           {/* Expanded Image */}
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-12 pointer-events-none">
+          <div className="fixed inset-y-0 left-0 right-80 z-50 flex items-center justify-center p-12 pointer-events-none">
             <img
               src={currentImage.s3Url}
               alt={currentImage.label || currentImage.filename}
