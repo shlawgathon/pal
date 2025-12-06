@@ -1,0 +1,18 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: mongo-rs0
+    ports:
+      - "3500:27017"
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: echo "try { rs.status() } catch (err) { rs.initiate() }" | mongosh --quiet
+      interval: 5s
+      timeout: 30s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  mongo_data:

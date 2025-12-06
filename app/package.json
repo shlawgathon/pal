@@ -15,7 +15,8 @@
     "test:cluster-semantic": "npx tsx test/test-cluster-semantic.ts",
     "test:cluster-hybrid": "npx tsx test/test-cluster-hybrid.ts",
     "test:cluster-hybrid-parallel": "npx tsx test/test-cluster-hybrid-parallel.ts",
-    "test:rank": "npx tsx test/test-rank.ts"
+    "test:rank": "npx tsx test/test-rank.ts",
+    "test:union-find": "npx tsx test/test-union-find.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.946.0",
