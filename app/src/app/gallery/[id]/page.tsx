@@ -258,7 +258,7 @@ export default function GalleryPage() {
       </div>
 
       {/* Bottom Panel - Bucket Thumbnails */}
-      <div className="flex-shrink-0 h-36 border-t border-border">
+      <div className="flex-shrink-0 h-36">
         <div className="h-full overflow-x-auto">
           <div className="flex gap-3 h-full px-4 py-3">
             {buckets.map((bucket) => (
@@ -300,7 +300,7 @@ export default function GalleryPage() {
           {/* Close Button */}
           <button
             onClick={() => setIsImageExpanded(false)}
-            className="fixed top-4 right-4 z-[70] w-8 h-8 flex items-center justify-center rounded-full bg-white border border-border shadow-lg hover:bg-gray-100 transition-colors pointer-events-auto"
+            className="fixed top-4 left-4 z-[70] w-8 h-8 flex items-center justify-center rounded-full bg-white border border-border shadow-lg hover:bg-gray-100 transition-colors pointer-events-auto"
           >
             <span className="text-xl leading-none">&times;</span>
           </button>
