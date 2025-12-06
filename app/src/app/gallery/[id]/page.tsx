@@ -62,11 +62,6 @@ export default function GalleryPage() {
       setData(result)
       setError(null)
 
-      // Auto-select first bucket if none selected
-      if (!selectedBucketId && result.buckets.length > 0) {
-        setSelectedBucketId(result.buckets[0].id)
-      }
-
       return result.job.status !== 'completed' && result.job.status !== 'failed'
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -74,7 +69,7 @@ export default function GalleryPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [jobId, selectedBucketId])
+  }, [jobId])
 
   useEffect(() => {
     let pollInterval: NodeJS.Timeout | null = null
@@ -98,6 +93,13 @@ export default function GalleryPage() {
       if (pollInterval) clearInterval(pollInterval)
     }
   }, [fetchData])
+
+  // Auto-select first bucket when data loads
+  useEffect(() => {
+    if (!selectedBucketId && data?.buckets && data.buckets.length > 0) {
+      setSelectedBucketId(data.buckets[0].id)
+    }
+  }, [data?.buckets, selectedBucketId])
 
   const isProcessing = data?.job.status !== 'completed' && data?.job.status !== 'failed'
   const selectedBucket = data?.buckets.find(b => b.id === selectedBucketId)
