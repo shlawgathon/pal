@@ -51,9 +51,6 @@ export default function GalleryPage() {
   const [selectedBucketId, setSelectedBucketId] = useState<string | null>(null)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [isImageExpanded, setIsImageExpanded] = useState(false)
-  const [lastDirection, setLastDirection] = useState<'up' | 'down' | 'left' | 'right' | null>(null)
-  const [isTransitioning, setIsTransitioning] = useState(false)
-  const [previousImage, setPreviousImage] = useState<{ bucketId: string; index: number } | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -109,10 +106,6 @@ export default function GalleryPage() {
   const buckets = data?.buckets.filter(b => b.images.length > 0) || []
   const currentImage = selectedBucket?.images[currentImageIndex]
 
-  // Get previous image for transitions
-  const previousBucket = previousImage ? data?.buckets.find(b => b.id === previousImage.bucketId) : null
-  const prevImage = previousBucket?.images[previousImage?.index ?? 0]
-
   // Reset index when bucket changes
   useEffect(() => {
     setCurrentImageIndex(0)
@@ -131,54 +124,24 @@ export default function GalleryPage() {
 
   // Handle image scroll navigation within a bucket
   const handleScroll = (direction: 'up' | 'down') => {
-    if (!selectedBucket || isTransitioning) return
+    if (!selectedBucket) return
 
     if (direction === 'up' && currentImageIndex > 0) {
-      setPreviousImage({ bucketId: selectedBucketId!, index: currentImageIndex })
-      setLastDirection(direction)
-      setIsTransitioning(true)
       setCurrentImageIndex(currentImageIndex - 1)
-      setTimeout(() => {
-        setIsTransitioning(false)
-        setPreviousImage(null)
-      }, 400)
     } else if (direction === 'down' && currentImageIndex < selectedBucket.images.length - 1) {
-      setPreviousImage({ bucketId: selectedBucketId!, index: currentImageIndex })
-      setLastDirection(direction)
-      setIsTransitioning(true)
       setCurrentImageIndex(currentImageIndex + 1)
-      setTimeout(() => {
-        setIsTransitioning(false)
-        setPreviousImage(null)
-      }, 400)
     }
   }
 
   // Handle bucket navigation
   const handleBucketScroll = (direction: 'left' | 'right') => {
-    if (isTransitioning) return
-
     const currentIndex = buckets.findIndex(b => b.id === selectedBucketId)
     if (currentIndex === -1) return
 
     if (direction === 'left' && currentIndex > 0) {
-      setPreviousImage({ bucketId: selectedBucketId!, index: currentImageIndex })
-      setLastDirection(direction)
-      setIsTransitioning(true)
       setSelectedBucketId(buckets[currentIndex - 1].id)
-      setTimeout(() => {
-        setIsTransitioning(false)
-        setPreviousImage(null)
-      }, 400)
     } else if (direction === 'right' && currentIndex < buckets.length - 1) {
-      setPreviousImage({ bucketId: selectedBucketId!, index: currentImageIndex })
-      setLastDirection(direction)
-      setIsTransitioning(true)
       setSelectedBucketId(buckets[currentIndex + 1].id)
-      setTimeout(() => {
-        setIsTransitioning(false)
-        setPreviousImage(null)
-      }, 400)
     }
   }
 
@@ -276,42 +239,9 @@ export default function GalleryPage() {
                 </button>
               )}
 
-              {/* Main Image - with animation wrapper */}
+              {/* Main Image */}
               <div className="absolute inset-0 flex items-center justify-center p-8">
-                {/* Previous image sliding out */}
-                {isTransitioning && prevImage && (
-                  <div
-                    className={`
-                      absolute flex flex-col items-center
-                      ${lastDirection === 'up' ? 'animate-slide-out-to-bottom' : ''}
-                      ${lastDirection === 'down' ? 'animate-slide-out-to-top' : ''}
-                      ${lastDirection === 'left' ? 'animate-slide-out-to-right' : ''}
-                      ${lastDirection === 'right' ? 'animate-slide-out-to-left' : ''}
-                    `}
-                  >
-                    <img
-                      src={prevImage.s3Url}
-                      alt={prevImage.label || prevImage.filename}
-                      className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-lg"
-                    />
-                    <div className="mt-6 flex items-center gap-2 text-muted-foreground">
-                      <span className="text-3xl font-light">{previousImage!.index + 1}</span>
-                      <span className="text-lg">/ {previousBucket!.images.length}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Current image sliding in */}
-                <div
-                  key={`${selectedBucketId}-${currentImageIndex}`}
-                  className={`
-                    flex flex-col items-center
-                    ${isTransitioning && lastDirection === 'up' ? 'animate-slide-in-from-top' : ''}
-                    ${isTransitioning && lastDirection === 'down' ? 'animate-slide-in-from-bottom' : ''}
-                    ${isTransitioning && lastDirection === 'left' ? 'animate-slide-in-from-left' : ''}
-                    ${isTransitioning && lastDirection === 'right' ? 'animate-slide-in-from-right' : ''}
-                  `}
-                >
+                <div className="flex flex-col items-center">
                   <img
                     src={currentImage.s3Url}
                     alt={currentImage.label || currentImage.filename}
