@@ -6,18 +6,38 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
+// Cloudflare R2 endpoint (if using R2) or undefined for standard AWS S3
+const R2_ENDPOINT = process.env.R2_ENDPOINT;
+const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL;
+
 const s3Client = new S3Client({
-    region: process.env.AWS_REGION || 'us-east-1',
+    region: process.env.AWS_REGION || 'auto', // R2 uses 'auto' for region
+    endpoint: R2_ENDPOINT, // e.g., https://<account_id>.r2.cloudflarestorage.com
     credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
     },
+    // R2 requires this to be set for S3 compatibility
+    ...(R2_ENDPOINT && { forcePathStyle: true }),
 });
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET || 'pal-media-storage';
 
 /**
- * Upload a file to S3
+ * Generate the public URL for an object
+ * Uses R2 public URL if configured, otherwise falls back to S3 URL format
+ */
+function getPublicUrl(key: string): string {
+    if (R2_PUBLIC_URL) {
+        // R2 custom domain or public bucket URL
+        return `${R2_PUBLIC_URL}/${key}`;
+    }
+    // Standard S3 URL format
+    return `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${key}`;
+}
+
+/**
+ * Upload a file to S3/R2
  */
 export async function uploadToS3(
     key: string,
@@ -31,7 +51,7 @@ export async function uploadToS3(
         ContentType: contentType,
     }));
 
-    const s3Url = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${key}`;
+    const s3Url = getPublicUrl(key);
 
     return { s3Key: key, s3Url };
 }
