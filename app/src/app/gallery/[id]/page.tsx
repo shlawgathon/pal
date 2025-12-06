@@ -311,9 +311,9 @@ export default function GalleryPage() {
       </div>
 
       {/* Bottom Panel - Bucket Thumbnails */}
-      <div className="flex-shrink-0 h-24 border-t border-border bg-secondary/50">
+      <div className="flex-shrink-0 h-36 border-t border-border">
         <div className="h-full overflow-x-auto">
-          <div className="flex gap-2 h-full px-4 py-2">
+          <div className="flex gap-3 h-full px-4 py-3">
             {buckets.map((bucket) => (
               <button
                 key={bucket.id}
@@ -327,17 +327,17 @@ export default function GalleryPage() {
                   <img
                     src={bucket.images[0].s3Url}
                     alt={bucket.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 )}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-1.5">
-                  <div className="text-white text-xs font-medium truncate">{bucket.name}</div>
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-white/90 to-transparent p-1.5">
+                  <div className="text-foreground text-xs font-medium truncate">{bucket.name}</div>
                 </div>
               </button>
             ))}
 
             {isProcessing && (
-              <div className="flex-shrink-0 h-full aspect-[4/3] rounded-lg bg-secondary flex items-center justify-center">
+              <div className="flex-shrink-0 h-full aspect-[4/3] rounded-lg flex items-center justify-center">
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
             )}
