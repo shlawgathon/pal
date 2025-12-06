@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Loader2, Star, ChevronUp, ChevronDown } from "lucide-react"
+import { ArrowLeft, Loader2, ChevronUp, ChevronDown } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 
 interface MediaImage {
@@ -43,7 +43,6 @@ export default function GalleryPage() {
   const params = useParams()
   const router = useRouter()
   const jobId = params.id as string
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const [data, setData] = useState<PartialResults | null>(null)
   const [isLoading, setIsLoading] = useState(true)
