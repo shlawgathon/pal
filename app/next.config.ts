@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+    allowedDevOrigins: ['pal.liftgate.io'],
     images: {
         remotePatterns: [
             {
