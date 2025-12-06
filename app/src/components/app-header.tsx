@@ -1,9 +1,10 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { Search, Bell, User } from "lucide-react"
+import { Search, User } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { ModeToggle } from "@/components/mode-toggle"
 
 function getPageTitle(pathname: string): string {
     if (pathname === "/") return "Galleries"
@@ -30,10 +31,7 @@ export function AppHeader() {
                     />
                 </div>
 
-                <Button variant="ghost" size="icon" className="h-9 w-9">
-                    <Bell className="h-4 w-4" />
-                    <span className="sr-only">Notifications</span>
-                </Button>
+                <ModeToggle />
 
                 <Button variant="ghost" size="icon" className="h-9 w-9">
                     <User className="h-4 w-4" />
@@ -43,3 +41,4 @@ export function AppHeader() {
         </header>
     )
 }
+

@@ -258,7 +258,7 @@ export default function GalleryPage() {
       </div>
 
       {/* Bottom Panel - Bucket Thumbnails */}
-      <div className="flex-shrink-0 h-36 border-t border-border">
+      <div className="flex-shrink-0 h-36">
         <div className="h-full overflow-x-auto">
           <div className="flex gap-3 h-full px-4 py-3">
             {buckets.map((bucket) => (
@@ -297,33 +297,17 @@ export default function GalleryPage() {
             className="fixed inset-0 bg-white/60 backdrop-blur-sm z-40"
             onClick={() => setIsImageExpanded(false)}
           />
+          {/* Close Button */}
+          <button
+            onClick={() => setIsImageExpanded(false)}
+            className="fixed top-4 left-4 z-[70] w-8 h-8 flex items-center justify-center rounded-full bg-white border border-border shadow-lg hover:bg-gray-100 transition-colors pointer-events-auto"
+          >
+            <span className="text-xl leading-none">&times;</span>
+          </button>
+
           {/* Metadata Sidebar */}
           <div className="fixed right-0 top-0 bottom-0 w-80 bg-white border-l border-border shadow-2xl z-[60] p-6 overflow-y-auto pointer-events-auto">
             <div className="space-y-4">
-              {/* Thumbnail strip */}
-              <div className="space-y-2">
-                <div className="text-xs text-muted-foreground uppercase tracking-wide">Images</div>
-                <div className="flex flex-wrap gap-1">
-                  {selectedBucket?.images.slice(0, 12).map((img, idx) => (
-                    <button
-                      key={img.id}
-                      onClick={() => setCurrentImageIndex(idx)}
-                      className={`w-12 h-12 rounded overflow-hidden transition-all ${idx === currentImageIndex ? 'ring-2 ring-foreground' : 'opacity-60 hover:opacity-100'
-                        }`}
-                    >
-                      <img src={img.s3Url} alt="" className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                  {selectedBucket && selectedBucket.images.length > 12 && (
-                    <div className="w-12 h-12 rounded bg-secondary flex items-center justify-center text-xs text-muted-foreground">
-                      +{selectedBucket.images.length - 12}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <hr className="border-border" />
-
               {/* Metadata */}
               <div className="space-y-3">
                 <div>
@@ -351,11 +335,11 @@ export default function GalleryPage() {
             </div>
           </div>
           {/* Expanded Image */}
-          <div className="fixed inset-y-0 left-0 right-80 z-50 flex items-center justify-center p-12 pointer-events-none">
+          <div className="fixed inset-0 right-80 z-50 flex items-center justify-center p-8 pointer-events-none">
             <img
               src={currentImage.s3Url}
               alt={currentImage.label || currentImage.filename}
-              className="max-w-full max-h-full object-contain shadow-2xl rounded-lg pointer-events-auto cursor-zoom-out"
+              className="w-full h-full object-contain shadow-2xl rounded-lg pointer-events-auto cursor-zoom-out"
               onClick={() => setIsImageExpanded(false)}
             />
           </div>
