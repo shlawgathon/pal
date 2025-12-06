@@ -35,7 +35,7 @@ Return only the enhanced image.`;
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-preview-image',
+            model: 'gemini-2.0-flash-exp',
             contents: [
                 {
                     role: 'user',
