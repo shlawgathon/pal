@@ -1,26 +1,42 @@
 {
-  "name": "app",
+  "name": "pal",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:server": "npx tsx server.ts",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "node --import tsx server.ts",
+    "lint": "eslint",
+    "prisma:generate": "prisma generate"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.946.0",
+    "@aws-sdk/s3-request-presigner": "^3.946.0",
+    "@google/generative-ai": "^0.24.1",
+    "@prisma/client": "^7.1.0",
+    "adm-zip": "^0.5.16",
+    "dotenv": "^17.2.3",
     "next": "16.0.7",
+    "p-limit": "^7.2.0",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "uuid": "^13.0.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/adm-zip": "^0.5.7",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "eslint": "^9",
     "eslint-config-next": "16.0.7",
+    "prisma": "^7.1.0",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
