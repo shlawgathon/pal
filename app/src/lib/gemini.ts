@@ -5,9 +5,9 @@ import { IMAGE_COMPARISON_CRITERIA, VIDEO_COMPARISON_CRITERIA } from './types';
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // Models
-const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-const textModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+const textModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-001' });
 
 /**
  * Generate a descriptive label for an image

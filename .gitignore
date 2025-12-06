@@ -56,3 +56,5 @@ Thumbs.db
 **/public/worker-*.js.map
 
 *.iml
+/app/test/EWR.zip
+/app/test/EWR-Conservative.zip
