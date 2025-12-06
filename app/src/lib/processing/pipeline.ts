@@ -17,10 +17,10 @@ import { ELO_INITIAL_SCORE, ELO_K_FACTOR } from '../types';
 import type { MediaFile, Bucket } from '@prisma/client';
 
 // Parallelization limits - high concurrency for faster processing
-const LABEL_CONCURRENCY = 25;
-const COMPARE_CONCURRENCY = 15;
+const LABEL_CONCURRENCY = 65;
+const COMPARE_CONCURRENCY = 60;
 const RANK_CONCURRENCY = 8;
-const MERGE_CONCURRENCY = 20;
+const MERGE_CONCURRENCY = 40;
 
 const labelLimit = pLimit(LABEL_CONCURRENCY);
 const compareLimit = pLimit(COMPARE_CONCURRENCY);
