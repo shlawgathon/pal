@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { RankedPhotoRow } from "./ranked-photo-row"
 import { PhotoSidebar } from "./photo-sidebar"
 import type { Gallery, Photo, RankedPhoto } from "@/lib/gallery-data"
-import { ChevronLeftIcon, ChevronRightIcon } from "@radix-ui/react-icons"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 
 interface PhotoGalleryProps {
   gallery: Gallery
@@ -105,7 +105,7 @@ export function PhotoGallery({ gallery }: PhotoGalleryProps) {
           onClick={navigateToPrevRank}
           className="fixed left-4 top-1/2 -translate-y-1/2 z-30 bg-background/80 hover:bg-background rounded-full p-2 shadow-md transition-all"
         >
-          <ChevronLeftIcon className="w-6 h-6 text-foreground" />
+          <ChevronLeft className="w-6 h-6 text-foreground" />
         </button>
       )}
 
@@ -114,7 +114,7 @@ export function PhotoGallery({ gallery }: PhotoGalleryProps) {
           onClick={navigateToNextRank}
           className="fixed right-4 top-1/2 -translate-y-1/2 z-30 bg-background/80 hover:bg-background rounded-full p-2 shadow-md transition-all"
         >
-          <ChevronRightIcon className="w-6 h-6 text-foreground" />
+          <ChevronRight className="w-6 h-6 text-foreground" />
         </button>
       )}
 
@@ -133,10 +133,6 @@ export function PhotoGallery({ gallery }: PhotoGalleryProps) {
             <RankedPhotoRow
               rankedPhoto={rankedPhoto}
               onPhotoClick={setSelectedPhoto}
-              prevRankPhoto={index > 0 ? getFocusedPhoto(photos[index - 1]) : null}
-              nextRankPhoto={index < photos.length - 1 ? getFocusedPhoto(photos[index + 1]) : null}
-              prevRank={index > 0 ? photos[index - 1].rank : null}
-              nextRank={index < photos.length - 1 ? photos[index + 1].rank : null}
               focusedIndex={focusedPhotos[rankedPhoto.rank] || 0}
               onFocusChange={(idx) => handleFocusChange(rankedPhoto.rank, idx)}
               isScrolling={isScrolling}

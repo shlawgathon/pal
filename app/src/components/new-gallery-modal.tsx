@@ -1,19 +1,26 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef } from "react"
+import { PALClient, type UploadProgress, type ProcessingProgress } from "@/lib/api-client"
+import { Progress } from "@/components/ui/progress"
 
 interface NewGalleryModalProps {
   isOpen: boolean
   onClose: () => void
+  onGalleryCreated?: (jobId: string) => void
 }
 
-export function NewGalleryModal({ isOpen, onClose }: NewGalleryModalProps) {
+export function NewGalleryModal({ isOpen, onClose, onGalleryCreated }: NewGalleryModalProps) {
   const [galleryName, setGalleryName] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [processingStatus, setProcessingStatus] = useState<string>("")
+  const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const clientRef = useRef<PALClient | null>(null)
 
   if (!isOpen) return null
 
@@ -33,29 +40,91 @@ export function NewGalleryModal({ isOpen, onClose }: NewGalleryModalProps) {
     const file = e.dataTransfer.files[0]
     if (file && file.name.endsWith(".zip")) {
       setSelectedFile(file)
+      setError(null)
+    } else {
+      setError("Please select a ZIP file")
     }
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      setSelectedFile(file)
+      if (file.name.endsWith(".zip")) {
+        setSelectedFile(file)
+        setError(null)
+      } else {
+        setError("Please select a ZIP file")
+      }
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Handle gallery creation logic here
-    console.log("Creating gallery:", galleryName, selectedFile)
-    onClose()
-    setGalleryName("")
-    setSelectedFile(null)
+    if (!selectedFile || !galleryName) return
+
+    setIsUploading(true)
+    setError(null)
+    setUploadProgress(0)
+    setProcessingStatus("Connecting...")
+
+    try {
+      // Initialize client
+      if (!clientRef.current) {
+        clientRef.current = new PALClient()
+      }
+
+      // Upload the ZIP file via WebSocket
+      const jobId = await clientRef.current.uploadZip(selectedFile, {
+        onProgress: (progress: UploadProgress | ProcessingProgress) => {
+          if ('percent' in progress) {
+            setUploadProgress(progress.percent)
+            if (progress.percent < 100) {
+              setProcessingStatus(`Uploading... ${progress.percent.toFixed(0)}%`)
+            }
+          } else if ('stage' in progress && 'message' in progress) {
+            setProcessingStatus(progress.message || progress.stage)
+          }
+        },
+        onStatus: (status) => {
+          // Status is the JobStatus string
+          if (status === 'completed') {
+            onGalleryCreated?.(clientRef.current?.getCurrentJobId() || '')
+            handleClose()
+          } else {
+            setProcessingStatus(status)
+          }
+        },
+        onError: (err) => {
+          setError(err.message)
+          setIsUploading(false)
+        }
+      })
+
+      // If we get here, upload completed successfully
+      onGalleryCreated?.(jobId)
+      handleClose()
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed")
+      setIsUploading(false)
+    }
+  }
+
+  const handleClose = () => {
+    if (!isUploading) {
+      setGalleryName("")
+      setSelectedFile(null)
+      setError(null)
+      setUploadProgress(0)
+      setProcessingStatus("")
+      onClose()
+    }
   }
 
   return (
     <div
       className="fixed inset-0 bg-foreground/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="bg-background rounded-xl border border-border w-full max-w-md p-6"
@@ -64,8 +133,9 @@ export function NewGalleryModal({ isOpen, onClose }: NewGalleryModalProps) {
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-medium text-foreground">Create New Gallery</h2>
           <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-secondary transition-colors text-foreground"
+            onClick={handleClose}
+            disabled={isUploading}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-secondary transition-colors text-foreground disabled:opacity-50"
           >
             ×
           </button>
@@ -82,7 +152,8 @@ export function NewGalleryModal({ isOpen, onClose }: NewGalleryModalProps) {
               value={galleryName}
               onChange={(e) => setGalleryName(e.target.value)}
               placeholder="Enter gallery name"
-              className="w-full px-4 py-2 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20"
+              disabled={isUploading}
+              className="w-full px-4 py-2 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 disabled:opacity-50"
               required
             />
           </div>
@@ -93,17 +164,31 @@ export function NewGalleryModal({ isOpen, onClose }: NewGalleryModalProps) {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                isDragging
+              onClick={() => !isUploading && fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${isUploading
+                  ? "cursor-default opacity-50"
+                  : "cursor-pointer"
+                } ${isDragging
                   ? "border-foreground bg-secondary"
                   : selectedFile
                     ? "border-foreground/40 bg-secondary/50"
                     : "border-border hover:border-foreground/40 hover:bg-secondary/50"
-              }`}
+                }`}
             >
-              <input ref={fileInputRef} type="file" accept=".zip" onChange={handleFileSelect} className="hidden" />
-              {selectedFile ? (
+              <input ref={fileInputRef} type="file" accept=".zip" onChange={handleFileSelect} className="hidden" disabled={isUploading} />
+
+              {isUploading ? (
+                <div className="space-y-3">
+                  <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-secondary flex items-center justify-center">
+                    <svg className="w-6 h-6 text-foreground animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  </div>
+                  <p className="text-foreground font-medium">{processingStatus}</p>
+                  <Progress value={uploadProgress} className="w-full" />
+                </div>
+              ) : selectedFile ? (
                 <div>
                   <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-secondary flex items-center justify-center">
                     <svg className="w-6 h-6 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -139,20 +224,27 @@ export function NewGalleryModal({ isOpen, onClose }: NewGalleryModalProps) {
             </div>
           </div>
 
+          {error && (
+            <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
+              {error}
+            </div>
+          )}
+
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-lg border border-border hover:bg-secondary transition-colors text-foreground"
+              onClick={handleClose}
+              disabled={isUploading}
+              className="flex-1 px-4 py-2 rounded-lg border border-border hover:bg-secondary transition-colors text-foreground disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={!galleryName || !selectedFile}
+              disabled={!galleryName || !selectedFile || isUploading}
               className="flex-1 px-4 py-2 rounded-lg bg-foreground text-background hover:bg-foreground/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Create Gallery
+              {isUploading ? "Processing..." : "Create Gallery"}
             </button>
           </div>
         </form>

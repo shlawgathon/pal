@@ -1,18 +1,351 @@
-import { PhotoGallery } from "@/components/photo-gallery"
-import { sampleGalleries } from "@/lib/gallery-data"
-import { notFound } from "next/navigation"
+"use client"
 
-interface GalleryPageProps {
-  params: Promise<{ id: string }>
+import { useState, useEffect, useCallback, useRef } from "react"
+import { useParams, useRouter } from "next/navigation"
+import Link from "next/link"
+import { ArrowLeft, Loader2, Star, ChevronUp, ChevronDown } from "lucide-react"
+import { Progress } from "@/components/ui/progress"
+
+interface MediaImage {
+  id: string
+  filename: string
+  s3Url: string
+  label?: string
+  eloScore: number
+  isTopPick: boolean
 }
 
-export default async function GalleryPage({ params }: GalleryPageProps) {
-  const { id } = await params
-  const gallery = sampleGalleries.find((g) => g.id === id)
+interface Bucket {
+  id: string
+  name: string
+  images: MediaImage[]
+  videos: MediaImage[]
+}
 
-  if (!gallery) {
-    notFound()
+interface PartialResults {
+  job: {
+    id: string
+    status: string
+    totalFiles: number
+    processedFiles: number
+    progress: number
+    createdAt: string
+    updatedAt: string
+    completedAt: string | null
+  }
+  buckets: Bucket[]
+  unclusteredImages: MediaImage[]
+  totalImages: number
+}
+
+export default function GalleryPage() {
+  const params = useParams()
+  const router = useRouter()
+  const jobId = params.id as string
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+
+  const [data, setData] = useState<PartialResults | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedBucketId, setSelectedBucketId] = useState<string | null>(null)
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
+
+  const fetchData = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/partial`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch')
+      }
+      const result = await response.json()
+      setData(result)
+      setError(null)
+
+      // Auto-select first bucket if none selected
+      if (!selectedBucketId && result.buckets.length > 0) {
+        setSelectedBucketId(result.buckets[0].id)
+      }
+
+      return result.job.status !== 'completed' && result.job.status !== 'failed'
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+      return false
+    } finally {
+      setIsLoading(false)
+    }
+  }, [jobId, selectedBucketId])
+
+  useEffect(() => {
+    let pollInterval: NodeJS.Timeout | null = null
+
+    const startPolling = async () => {
+      const shouldContinue = await fetchData()
+
+      if (shouldContinue) {
+        pollInterval = setInterval(async () => {
+          const shouldContinue = await fetchData()
+          if (!shouldContinue && pollInterval) {
+            clearInterval(pollInterval)
+          }
+        }, 2000)
+      }
+    }
+
+    startPolling()
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval)
+    }
+  }, [fetchData])
+
+  const isProcessing = data?.job.status !== 'completed' && data?.job.status !== 'failed'
+  const selectedBucket = data?.buckets.find(b => b.id === selectedBucketId)
+  const buckets = data?.buckets.filter(b => b.images.length > 0) || []
+  const currentImage = selectedBucket?.images[currentImageIndex]
+
+  // Reset index when bucket changes
+  useEffect(() => {
+    setCurrentImageIndex(0)
+  }, [selectedBucketId])
+
+  // Handle scroll navigation
+  const handleScroll = (direction: 'up' | 'down') => {
+    if (!selectedBucket) return
+
+    if (direction === 'up' && currentImageIndex > 0) {
+      setCurrentImageIndex(currentImageIndex - 1)
+    } else if (direction === 'down' && currentImageIndex < selectedBucket.images.length - 1) {
+      setCurrentImageIndex(currentImageIndex + 1)
+    }
   }
 
-  return <PhotoGallery gallery={gallery} />
+  // Handle wheel scroll
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault()
+    if (e.deltaY > 30) {
+      handleScroll('down')
+    } else if (e.deltaY < -30) {
+      handleScroll('up')
+    }
+  }
+
+  if (isLoading && !data) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
+          <p className="text-muted-foreground">Loading gallery...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <p className="text-red-500">{error}</p>
+          <button
+            onClick={() => router.push('/')}
+            className="px-4 py-2 bg-secondary rounded-lg hover:bg-secondary/80"
+          >
+            Back to Home
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
+      {/* Header */}
+      <header className="flex-shrink-0 h-14 border-b border-border flex items-center px-4 gap-4">
+        <Link href="/" className="p-2 hover:bg-secondary rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5" />
+        </Link>
+        <h1 className="text-lg font-medium">
+          {selectedBucket?.name || 'Gallery'}
+        </h1>
+
+        {isProcessing && data && (
+          <div className="ml-auto flex items-center gap-3">
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">{data.job.status}</span>
+            <div className="w-24">
+              <Progress value={data.job.progress} className="h-2" />
+            </div>
+            <span className="text-sm text-muted-foreground">{data.job.progress}%</span>
+          </div>
+        )}
+      </header>
+
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Center Panel - Single Image with Scroll */}
+        <div
+          className="flex-1 flex flex-col items-center justify-center relative"
+          onWheel={handleWheel}
+        >
+          {selectedBucket && currentImage ? (
+            <>
+              {/* Up Arrow */}
+              {currentImageIndex > 0 && (
+                <button
+                  onClick={() => handleScroll('up')}
+                  className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/80 hover:bg-background rounded-full p-2 shadow-md z-10"
+                >
+                  <ChevronUp className="w-6 h-6" />
+                </button>
+              )}
+
+              {/* Main Image */}
+              <div className="relative max-w-[60%] max-h-[70%]">
+                <img
+                  src={currentImage.s3Url}
+                  alt={currentImage.label || currentImage.filename}
+                  className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-lg"
+                />
+
+                {/* Top Pick Badge */}
+                {currentImage.isTopPick && (
+                  <div className="absolute top-3 left-3 bg-yellow-500 text-black px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1.5">
+                    <Star className="w-4 h-4" fill="currentColor" />
+                    Top Pick
+                  </div>
+                )}
+              </div>
+
+              {/* Image Counter */}
+              <div className="mt-6 flex items-center gap-2 text-muted-foreground">
+                <span className="text-3xl font-light">{currentImageIndex + 1}</span>
+                <span className="text-lg">/ {selectedBucket.images.length}</span>
+              </div>
+
+              {/* Down Arrow */}
+              {currentImageIndex < selectedBucket.images.length - 1 && (
+                <button
+                  onClick={() => handleScroll('down')}
+                  className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/80 hover:bg-background rounded-full p-2 shadow-md z-10"
+                >
+                  <ChevronDown className="w-6 h-6" />
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="text-muted-foreground text-center">
+              {isProcessing ? (
+                <div className="space-y-3">
+                  <Loader2 className="w-8 h-8 animate-spin mx-auto" />
+                  <p>Processing images...</p>
+                </div>
+              ) : (
+                <p>Select a bucket to view images</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right Panel - Image Metadata */}
+        <div className="w-72 flex-shrink-0 border-l border-border bg-secondary/30 p-4 overflow-y-auto">
+          {currentImage ? (
+            <div className="space-y-4">
+              {/* Thumbnail strip */}
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide">Images</div>
+                <div className="flex flex-wrap gap-1">
+                  {selectedBucket?.images.slice(0, 12).map((img, idx) => (
+                    <button
+                      key={img.id}
+                      onClick={() => setCurrentImageIndex(idx)}
+                      className={`w-12 h-12 rounded overflow-hidden transition-all ${idx === currentImageIndex ? 'ring-2 ring-foreground' : 'opacity-60 hover:opacity-100'
+                        }`}
+                    >
+                      <img src={img.s3Url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                  {selectedBucket && selectedBucket.images.length > 12 && (
+                    <div className="w-12 h-12 rounded bg-secondary flex items-center justify-center text-xs text-muted-foreground">
+                      +{selectedBucket.images.length - 12}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <hr className="border-border" />
+
+              {/* Metadata */}
+              <div className="space-y-3">
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Filename</div>
+                  <div className="text-sm break-all">{currentImage.filename}</div>
+                </div>
+
+                {currentImage.label && (
+                  <div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">AI Label</div>
+                    <div className="text-sm">{currentImage.label}</div>
+                  </div>
+                )}
+
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Rank</div>
+                  <div className="text-2xl font-bold">#{currentImageIndex + 1}</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">ELO Score</div>
+                  <div className="text-2xl font-bold">{currentImage.eloScore.toFixed(0)}</div>
+                </div>
+
+                {currentImage.isTopPick && (
+                  <div className="flex items-center gap-2 bg-yellow-500/20 text-yellow-500 px-3 py-2 rounded-lg">
+                    <Star className="w-4 h-4" fill="currentColor" />
+                    <span className="font-medium">Top Pick</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+              Select an image to view details
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom Panel - Bucket Thumbnails */}
+      <div className="flex-shrink-0 h-24 border-t border-border bg-secondary/50">
+        <div className="h-full overflow-x-auto">
+          <div className="flex gap-2 h-full px-4 py-2">
+            {buckets.map((bucket) => (
+              <button
+                key={bucket.id}
+                onClick={() => setSelectedBucketId(bucket.id)}
+                className={`flex-shrink-0 h-full aspect-[4/3] rounded-lg overflow-hidden relative transition-all ${selectedBucketId === bucket.id
+                    ? 'ring-2 ring-foreground'
+                    : 'opacity-60 hover:opacity-100'
+                  }`}
+              >
+                {bucket.images[0] && (
+                  <img
+                    src={bucket.images[0].s3Url}
+                    alt={bucket.name}
+                    className="w-full h-full object-cover"
+                  />
+                )}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-1.5">
+                  <div className="text-white text-xs font-medium truncate">{bucket.name}</div>
+                </div>
+              </button>
+            ))}
+
+            {isProcessing && (
+              <div className="flex-shrink-0 h-full aspect-[4/3] rounded-lg bg-secondary flex items-center justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }

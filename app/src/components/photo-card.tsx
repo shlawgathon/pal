@@ -1,6 +1,6 @@
 "use client"
 
-import type { Photo } from "./photo-gallery"
+import type { Photo } from "@/lib/gallery-data"
 
 interface PhotoCardProps {
   photo: Photo
