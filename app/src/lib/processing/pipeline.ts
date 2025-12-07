@@ -151,25 +151,24 @@ export async function processJob(
 
             let matchedBucket: TempBucket | null = null;
 
-            if (tempBuckets.length > 0) {
-                // Compare to ALL bucket representatives in parallel
-                const comparisonResults = await Promise.all(
-                    tempBuckets.map((bucket, bucketIndex) =>
-                        compareLimit(async () => {
-                            const isSame = await areSameTake(
-                                file.buffer, file.mimeType,
-                                bucket.representative.buffer, bucket.representative.mimeType
-                            );
-                            console.log(`    vs "${bucket.representative.filename}" = ${isSame ? 'SAME' : 'DIFFERENT'}`);
-                            return { bucketIndex, isSame };
-                        })
+            // Compare sequentially against each bucket, stop on first match
+            for (let bucketIndex = 0; bucketIndex < tempBuckets.length; bucketIndex++) {
+                const bucket = tempBuckets[bucketIndex];
+
+                // Use compareLimit to respect concurrency limits
+                const isSame = await compareLimit(async () =>
+                    await areSameTake(
+                        file.buffer, file.mimeType,
+                        bucket.representative.buffer, bucket.representative.mimeType
                     )
                 );
 
-                // Find first matching bucket (by original order for consistency)
-                const matchResult = comparisonResults.find(r => r.isSame);
-                if (matchResult) {
-                    matchedBucket = tempBuckets[matchResult.bucketIndex];
+                console.log(`    vs "${bucket.representative.filename}" = ${isSame ? 'SAME' : 'DIFFERENT'}`);
+
+                if (isSame) {
+                    matchedBucket = bucket;
+                    console.log(`    -> Match found! Stopping search.`);
+                    break; // Early exit on first match
                 }
             }
 
