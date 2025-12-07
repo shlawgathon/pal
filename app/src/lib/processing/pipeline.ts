@@ -18,7 +18,7 @@ import type { MediaFile, Bucket } from '@prisma/client';
 
 // Parallelization limits - high concurrency for faster processing
 const LABEL_CONCURRENCY = 65;
-const COMPARE_CONCURRENCY = 60;
+const COMPARE_CONCURRENCY = 20;
 const RANK_CONCURRENCY = 8;
 const MERGE_CONCURRENCY = 40;
 
@@ -35,6 +35,47 @@ export interface ProcessingProgress {
 }
 
 export type ProgressCallback = (progress: ProcessingProgress) => void;
+
+/**
+ * Race multiple promises and return the first result that matches the predicate.
+ * If no result matches, returns null after all promises complete.
+ * This enables parallel execution with early exit optimization.
+ */
+async function raceToFirstMatch<T>(
+    promises: Promise<T>[],
+    predicate: (result: T) => boolean
+): Promise<T | null> {
+    if (promises.length === 0) return null;
+
+    return new Promise((resolve) => {
+        let completed = 0;
+        let resolved = false;
+
+        promises.forEach(promise => {
+            promise.then(result => {
+                if (!resolved) {
+                    if (predicate(result)) {
+                        // Found a match - resolve immediately
+                        resolved = true;
+                        resolve(result);
+                    } else {
+                        // No match - check if all completed
+                        completed++;
+                        if (completed === promises.length) {
+                            resolve(null); // No match found in any promise
+                        }
+                    }
+                }
+            }).catch(() => {
+                // On error, count as completed but don't match
+                completed++;
+                if (!resolved && completed === promises.length) {
+                    resolve(null);
+                }
+            });
+        });
+    });
+}
 
 /**
  * Compare two images to determine if they are the same "take"
@@ -151,24 +192,28 @@ export async function processJob(
 
             let matchedBucket: TempBucket | null = null;
 
-            // Compare sequentially against each bucket, stop on first match
-            for (let bucketIndex = 0; bucketIndex < tempBuckets.length; bucketIndex++) {
-                const bucket = tempBuckets[bucketIndex];
-
-                // Use compareLimit to respect concurrency limits
-                const isSame = await compareLimit(async () =>
-                    await areSameTake(
-                        file.buffer, file.mimeType,
-                        bucket.representative.buffer, bucket.representative.mimeType
-                    )
+            if (tempBuckets.length > 0) {
+                // Launch all bucket comparisons in parallel with controlled concurrency
+                const comparisons = tempBuckets.map((bucket, bucketIndex) =>
+                    compareLimit(async () => {
+                        const isSame = await areSameTake(
+                            file.buffer, file.mimeType,
+                            bucket.representative.buffer, bucket.representative.mimeType
+                        );
+                        console.log(`    vs "${bucket.representative.filename}" = ${isSame ? 'SAME' : 'DIFFERENT'}`);
+                        return { bucketIndex, isSame };
+                    })
                 );
 
-                console.log(`    vs "${bucket.representative.filename}" = ${isSame ? 'SAME' : 'DIFFERENT'}`);
+                // Race to first match - exits immediately when found
+                const result = await raceToFirstMatch(
+                    comparisons,
+                    (r) => r.isSame
+                );
 
-                if (isSame) {
-                    matchedBucket = bucket;
-                    console.log(`    -> Match found! Stopping search.`);
-                    break; // Early exit on first match
+                if (result) {
+                    matchedBucket = tempBuckets[result.bucketIndex];
+                    console.log(`    -> Match found with bucket #${result.bucketIndex + 1}! (early exit)`);
                 }
             }
 
