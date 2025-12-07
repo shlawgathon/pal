@@ -115,8 +115,16 @@ app.prepare().then(() => {
         });
     });
 
-    server.listen(port, () => {
+    server.listen(port, async () => {
         console.log(`> Server ready on http://${hostname}:${port}`);
         console.log(`> WebSocket server ready on ws://${hostname}:${port}/ws/upload`);
+
+        // Requeue incomplete jobs on startup
+        try {
+            const { requeueIncompleteJobs } = await import('./src/lib/job-queue');
+            await requeueIncompleteJobs();
+        } catch (error) {
+            console.error('[Server] Failed to requeue jobs:', error);
+        }
     });
 });

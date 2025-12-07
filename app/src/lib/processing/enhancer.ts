@@ -139,27 +139,35 @@ export async function enhanceTopImages(
 ): Promise<EnhancementResult[]> {
     console.log(`[Enhancer] Starting enhancement for job ${jobId}, top ${topN} per bucket`);
 
-    // Get all buckets for the job
+    // Get all buckets for the job with their media files
     const buckets = await prisma.bucket.findMany({
         where: { jobId },
         include: {
-            mediaFiles: {
-                where: {
-                    mediaType: 'image',
-                    isTopPick: true,
-                },
-                orderBy: { eloScore: 'desc' },
-                take: topN,
-            },
+            mediaFiles: true, // Get all files to check bucket size
         },
     });
 
+    // Filter buckets: only enhance images from buckets with 2+ images
+    // Single-image buckets are unique and don't represent "highly ranked" in a competitive sense
+    const bucketsToEnhance = buckets.filter(bucket => {
+        const imageCount = bucket.mediaFiles.filter(f => f.mediaType === 'image').length;
+        return imageCount >= 2;
+    });
+
+    console.log(`[Enhancer] Processing ${bucketsToEnhance.length}/${buckets.length} buckets (skipping ${buckets.length - bucketsToEnhance.length} single-image bucket(s))`);
+
     const results: EnhancementResult[] = [];
 
-    for (const bucket of buckets) {
-        console.log(`[Enhancer] Processing bucket "${bucket.name}" (${bucket.mediaFiles.length} top picks)`);
+    for (const bucket of bucketsToEnhance) {
+        // Get only top picks from this bucket
+        const topPicks = bucket.mediaFiles
+            .filter(f => f.mediaType === 'image' && f.isTopPick)
+            .sort((a, b) => b.eloScore - a.eloScore)
+            .slice(0, topN);
 
-        for (const mediaFile of bucket.mediaFiles) {
+        console.log(`[Enhancer] Processing bucket "${bucket.name}" (${topPicks.length} top picks)`);
+
+        for (const mediaFile of topPicks) {
             const result = await enhanceImage(mediaFile);
             if (result) {
                 results.push(result);

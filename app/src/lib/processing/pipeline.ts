@@ -141,35 +141,74 @@ export async function processJob(
         console.log(`[Pipeline] Starting job: ${jobId}`);
         console.log(`${'='.repeat(60)}\n`);
 
+        // Get job and determine starting stage
+        const job = await prisma.job.findUnique({ where: { id: jobId } });
+        if (!job) throw new Error('Job not found');
+
+        const currentStatus = job.status;
+        console.log(`[Pipeline] Current job status: ${currentStatus}`);
+
+        // Define stage order
+        const stages = ['labeling', 'clustering', 'merging', 'ranking', 'enhancing', 'completed', 'failed'];
+        const currentStageIndex = stages.indexOf(currentStatus);
+
+        // Helper function to determine if a stage should run
+        const shouldRunStage = (stageName: string): boolean => {
+            const stageIndex = stages.indexOf(stageName);
+            // Run if current stage matches or we're before it
+            return currentStageIndex <= stageIndex && currentStatus !== 'completed' && currentStatus !== 'failed';
+        };
+
         const mediaFiles = await prisma.mediaFile.findMany({ where: { jobId } });
         console.log(`[Pipeline] Found ${mediaFiles.length} media files`);
         if (mediaFiles.length === 0) throw new Error('No media files found');
 
         // ========== STAGE 1: PARALLEL LABELING ==========
-        console.log(`\n[Pipeline] ═══ STAGE 1: LABELING (${LABEL_CONCURRENCY} parallel) ═══`);
-        await prisma.job.update({ where: { id: jobId }, data: { status: 'labeling', totalFiles: mediaFiles.length, processedFiles: 0 } });
-        await updateProgress('labeling', 0, mediaFiles.length, 'Starting');
+        let filesWithData: Array<typeof mediaFiles[0] & { label: string; buffer: Buffer }>;
 
-        let labeledCount = 0;
-        const filesWithData = await Promise.all(
-            mediaFiles.map(file =>
-                labelLimit(async () => {
+        if (shouldRunStage('labeling')) {
+            console.log(`\n[Pipeline] ═══ STAGE 1: LABELING (${LABEL_CONCURRENCY} parallel) ═══`);
+            await prisma.job.update({ where: { id: jobId }, data: { status: 'labeling', totalFiles: mediaFiles.length, processedFiles: 0 } });
+            await updateProgress('labeling', 0, mediaFiles.length, 'Starting');
+
+            let labeledCount = 0;
+            filesWithData = await Promise.all(
+                mediaFiles.map(file =>
+                    labelLimit(async () => {
+                        const buffer = await downloadFromS3(file.s3Key);
+
+                        // Skip if already labeled
+                        let label = file.label;
+                        if (!label) {
+                            label = file.mediaType === 'video'
+                                ? await generateVideoLabel(buffer, file.mimeType)
+                                : await generateImageLabel(buffer, file.mimeType);
+
+                            await prisma.mediaFile.update({ where: { id: file.id }, data: { label } });
+                            labeledCount++;
+                            console.log(`[Pipeline] Labeled ${labeledCount}/${mediaFiles.length}: ${file.filename} -> "${label}"`);
+                        } else {
+                            console.log(`[Pipeline] Skipping ${file.filename} (already labeled)`);
+                        }
+
+                        await updateProgress('labeling', labeledCount, mediaFiles.length, file.filename);
+
+                        return { ...file, label, buffer };
+                    })
+                )
+            );
+
+            console.log(`[Pipeline] Labeling complete`);
+        } else {
+            console.log(`\n[Pipeline] ═══ SKIPPING STAGE 1: LABELING (already completed) ═══`);
+            // Load existing data
+            filesWithData = await Promise.all(
+                mediaFiles.map(async (file) => {
                     const buffer = await downloadFromS3(file.s3Key);
-                    const label = file.mediaType === 'video'
-                        ? await generateVideoLabel(buffer, file.mimeType)
-                        : await generateImageLabel(buffer, file.mimeType);
-
-                    await prisma.mediaFile.update({ where: { id: file.id }, data: { label } });
-                    labeledCount++;
-                    console.log(`[Pipeline] Labeled ${labeledCount}/${mediaFiles.length}: ${file.filename} -> "${label}"`);
-                    await updateProgress('labeling', labeledCount, mediaFiles.length, file.filename);
-
-                    return { ...file, label, buffer };
+                    return { ...file, label: file.label || '', buffer };
                 })
-            )
-        );
-
-        console.log(`[Pipeline] Labeling complete`);
+            );
+        }
 
         // ========== STAGE 2: UNION-FIND CLUSTERING ==========
         console.log(`\n[Pipeline] ═══ STAGE 2: UNION-FIND CLUSTERING ═══`);
@@ -374,8 +413,9 @@ export async function processJob(
 
             console.log(`\n[Pipeline] Ranking bucket "${bucket.name}" (${files.length} images)`);
 
+            // Skip buckets with 0 or 1 image
             if (files.length < 2) {
-                console.log(`    Skipping (< 2 images)`);
+                console.log(`    Skipping (${files.length} image${files.length === 1 ? ' - unique, no ranking needed' : 's'})`);
                 await updateProgress('ranking', b + 1, buckets.length, bucket.name);
                 continue;
             }
