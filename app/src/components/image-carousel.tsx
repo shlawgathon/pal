@@ -199,41 +199,68 @@ export function ImageCarousel({
                 }}
               >
                 {/* Vertical sliding container for images within bucket */}
-                <div className="absolute inset-0">
-                  <div
-                    className="absolute inset-0 transition-transform duration-500 ease-out"
-                    style={{
-                      transform: `translateY(${-bucketImageIndex * 100}%)`
-                    }}
-                  >
-                    {bucket.images.map((image, imageIdx) => (
-                      <div
-                        key={image.id}
-                        className="absolute inset-0 flex flex-col items-center justify-center p-8"
-                        style={{
-                          transform: `translateY(${imageIdx * 100}%)`
-                        }}
-                      >
-                        <img
-                          src={image.s3Url}
-                          alt={image.label || image.filename}
-                          className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-lg cursor-zoom-in hover:shadow-xl transition-shadow"
-                          onClick={() => onImageClick(image)}
-                          loading={
-                            Math.abs(bucketIdx - currentBucketIndex) <= 1 &&
-                            Math.abs(imageIdx - bucketImageIndex) <= 1
-                              ? "eager"
-                              : "lazy"
-                          }
-                        />
+                <div className="absolute inset-0 overflow-hidden">
+                  <div className="absolute top-1/2 left-0 right-0">
+                    <div
+                      className="flex flex-col items-center transition-transform duration-500 ease-out"
+                      style={{
+                        transform: `translateY(calc(-${bucketImageIndex} * 30rem - 15rem))`
+                      }}
+                    >
+                      {bucket.images.map((image, imageIdx) => {
+                        const offset = imageIdx - bucketImageIndex
+                        const isCenter = offset === 0
+                        const isAdjacent = Math.abs(offset) === 1
+                        const isVisible = Math.abs(offset) <= 2
 
-                        {/* Image Counter */}
-                        <div className="mt-6 flex items-center gap-2 text-muted-foreground">
-                          <span className="text-3xl font-light">{imageIdx + 1}</span>
-                          <span className="text-lg">/ {bucket.images.length}</span>
-                        </div>
-                      </div>
-                    ))}
+                        return (
+                          <div
+                            key={image.id}
+                            className="flex flex-col items-center justify-center flex-shrink-0 w-full transition-opacity duration-500 px-8"
+                            style={{
+                              height: '30rem',
+                              opacity: isCenter ? 1 : isAdjacent ? 0.5 : isVisible ? 0.3 : 0,
+                              cursor: isCenter ? 'zoom-in' : 'pointer',
+                              pointerEvents: isVisible ? 'auto' : 'none',
+                              visibility: isVisible ? 'visible' : 'hidden'
+                            }}
+                            onClick={() => {
+                              if (isCenter) {
+                                onImageClick(image)
+                              } else {
+                                setImageIndices(prev => ({
+                                  ...prev,
+                                  [bucket.id]: imageIdx
+                                }))
+                              }
+                            }}
+                          >
+                            <img
+                              src={image.s3Url}
+                              alt={image.label || image.filename}
+                              className="object-contain rounded-xl shadow-lg transition-all w-full"
+                              style={{
+                                maxHeight: isCenter ? 'min(50vh, 400px)' : 'min(20vh, 160px)'
+                              }}
+                              loading={
+                                Math.abs(bucketIdx - currentBucketIndex) <= 1 &&
+                                Math.abs(imageIdx - bucketImageIndex) <= 2
+                                  ? "eager"
+                                  : "lazy"
+                              }
+                            />
+
+                            {/* Image Counter - only show on center image */}
+                            {isCenter && (
+                              <div className="mt-4 flex items-center gap-2 text-muted-foreground">
+                                <span className="text-3xl font-light">{imageIdx + 1}</span>
+                                <span className="text-lg">/ {bucket.images.length}</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
