@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Loader2, ChevronUp, ChevronDown } from "lucide-react"
+import { ArrowLeft, Loader2 } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
+import { ImageCarousel } from "@/components/image-carousel"
 
 interface MediaImage {
   id: string
@@ -48,8 +49,8 @@ export default function GalleryPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedBucketId, setSelectedBucketId] = useState<string | null>(null)
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [isImageExpanded, setIsImageExpanded] = useState(false)
+  const [expandedImage, setExpandedImage] = useState<MediaImage | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -103,64 +104,22 @@ export default function GalleryPage() {
   const isProcessing = data?.job.status !== 'completed' && data?.job.status !== 'failed'
   const selectedBucket = data?.buckets.find(b => b.id === selectedBucketId)
   const buckets = data?.buckets.filter(b => b.images.length > 0) || []
-  const currentImage = selectedBucket?.images[currentImageIndex]
-
-  // Reset index when bucket changes
-  useEffect(() => {
-    setCurrentImageIndex(0)
-  }, [selectedBucketId])
 
   // Handle ESC key to close expanded image
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isImageExpanded) {
         setIsImageExpanded(false)
+        setExpandedImage(null)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isImageExpanded])
 
-  // Handle image scroll navigation within a bucket
-  const handleScroll = (direction: 'up' | 'down') => {
-    if (!selectedBucket) return
-
-    if (direction === 'up' && currentImageIndex > 0) {
-      setCurrentImageIndex(currentImageIndex - 1)
-    } else if (direction === 'down' && currentImageIndex < selectedBucket.images.length - 1) {
-      setCurrentImageIndex(currentImageIndex + 1)
-    }
-  }
-
-  // Handle bucket navigation
-  const handleBucketScroll = (direction: 'left' | 'right') => {
-    const currentIndex = buckets.findIndex(b => b.id === selectedBucketId)
-    if (currentIndex === -1) return
-
-    if (direction === 'left' && currentIndex > 0) {
-      setSelectedBucketId(buckets[currentIndex - 1].id)
-    } else if (direction === 'right' && currentIndex < buckets.length - 1) {
-      setSelectedBucketId(buckets[currentIndex + 1].id)
-    }
-  }
-
-  // Handle wheel scroll
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
-
-    // Vertical scroll - navigate between images in current bucket
-    if (e.deltaY > 30) {
-      handleScroll('down')
-    } else if (e.deltaY < -30) {
-      handleScroll('up')
-    }
-
-    // Horizontal scroll - navigate between buckets
-    if (e.deltaX > 30) {
-      handleBucketScroll('right')
-    } else if (e.deltaX < -30) {
-      handleBucketScroll('left')
-    }
+  const handleImageClick = (image: MediaImage) => {
+    setExpandedImage(image)
+    setIsImageExpanded(true)
   }
 
   if (isLoading && !data) {
@@ -221,51 +180,15 @@ export default function GalleryPage() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Center Panel - Single Image with Scroll */}
-        <div
-          className="flex-1 flex flex-col relative overflow-hidden"
-          onWheel={handleWheel}
-        >
-          {selectedBucket && currentImage ? (
-            <>
-              {/* Up Arrow */}
-              {currentImageIndex > 0 && (
-                <button
-                  onClick={() => handleScroll('up')}
-                  className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/80 hover:bg-background rounded-full p-2 shadow-md z-10"
-                >
-                  <ChevronUp className="w-6 h-6" />
-                </button>
-              )}
-
-              {/* Main Image */}
-              <div className="absolute inset-0 flex items-center justify-center p-8">
-                <div className="flex flex-col items-center">
-                  <img
-                    src={currentImage.s3Url}
-                    alt={currentImage.label || currentImage.filename}
-                    className="max-w-full max-h-[60vh] object-contain rounded-xl shadow-lg cursor-zoom-in hover:shadow-xl transition-shadow"
-                    onClick={() => setIsImageExpanded(true)}
-                  />
-
-                  {/* Image Counter */}
-                  <div className="mt-6 flex items-center gap-2 text-muted-foreground">
-                    <span className="text-3xl font-light">{currentImageIndex + 1}</span>
-                    <span className="text-lg">/ {selectedBucket.images.length}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Down Arrow */}
-              {currentImageIndex < selectedBucket.images.length - 1 && (
-                <button
-                  onClick={() => handleScroll('down')}
-                  className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/80 hover:bg-background rounded-full p-2 shadow-md z-10"
-                >
-                  <ChevronDown className="w-6 h-6" />
-                </button>
-              )}
-            </>
+        {/* Image Carousel */}
+        <div className="flex-1 relative overflow-hidden">
+          {buckets.length > 0 && selectedBucketId ? (
+            <ImageCarousel
+              buckets={buckets}
+              selectedBucketId={selectedBucketId}
+              onBucketChange={setSelectedBucketId}
+              onImageClick={handleImageClick}
+            />
           ) : (
             <div className="flex items-center justify-center h-full">
               <div className="text-muted-foreground text-center">
@@ -316,16 +239,22 @@ export default function GalleryPage() {
       </div>
 
       {/* Expanded Image Overlay */}
-      {isImageExpanded && currentImage && (
+      {isImageExpanded && expandedImage && (
         <>
           {/* Backdrop fade */}
           <div
             className="fixed inset-0 bg-white/60 backdrop-blur-sm z-40"
-            onClick={() => setIsImageExpanded(false)}
+            onClick={() => {
+              setIsImageExpanded(false)
+              setExpandedImage(null)
+            }}
           />
           {/* Close Button */}
           <button
-            onClick={() => setIsImageExpanded(false)}
+            onClick={() => {
+              setIsImageExpanded(false)
+              setExpandedImage(null)
+            }}
             className="fixed top-4 left-4 z-[70] w-8 h-8 flex items-center justify-center rounded-full bg-white border border-border shadow-lg hover:bg-gray-100 transition-colors pointer-events-auto"
           >
             <span className="text-xl leading-none">&times;</span>
@@ -338,24 +267,24 @@ export default function GalleryPage() {
               <div className="space-y-3">
                 <div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Filename</div>
-                  <div className="text-sm break-all">{currentImage.filename}</div>
+                  <div className="text-sm break-all">{expandedImage.filename}</div>
                 </div>
 
-                {currentImage.label && (
+                {expandedImage.label && (
                   <div>
                     <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">AI Label</div>
-                    <div className="text-sm">{currentImage.label}</div>
+                    <div className="text-sm">{expandedImage.label}</div>
                   </div>
                 )}
 
                 <div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Rank</div>
-                  <div className="text-2xl font-bold">#{currentImageIndex + 1}</div>
+                  <div className="text-2xl font-bold">#{selectedBucket?.images.findIndex(img => img.id === expandedImage.id)! + 1}</div>
                 </div>
 
                 <div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">ELO Score</div>
-                  <div className="text-2xl font-bold">{currentImage.eloScore.toFixed(0)}</div>
+                  <div className="text-2xl font-bold">{expandedImage.eloScore.toFixed(0)}</div>
                 </div>
               </div>
             </div>
@@ -363,10 +292,13 @@ export default function GalleryPage() {
           {/* Expanded Image */}
           <div className="fixed inset-0 right-80 z-50 flex items-center justify-center p-8 pointer-events-none">
             <img
-              src={currentImage.s3Url}
-              alt={currentImage.label || currentImage.filename}
+              src={expandedImage.s3Url}
+              alt={expandedImage.label || expandedImage.filename}
               className="w-full h-full object-contain shadow-2xl rounded-lg pointer-events-auto cursor-zoom-out"
-              onClick={() => setIsImageExpanded(false)}
+              onClick={() => {
+                setIsImageExpanded(false)
+                setExpandedImage(null)
+              }}
             />
           </div>
         </>
