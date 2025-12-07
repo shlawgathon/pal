@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Sparkles } from "lucide-react"
 
 interface MediaImage {
   id: string
@@ -10,6 +10,8 @@ interface MediaImage {
   label?: string
   eloScore: number
   isTopPick: boolean
+  enhancedS3Key?: string | null
+  enhancedS3Url?: string | null
 }
 
 interface Bucket {
@@ -34,6 +36,7 @@ export function ImageCarousel({
 }: ImageCarouselProps) {
   const [imageIndices, setImageIndices] = useState<Record<string, number>>({})
   const [isAnimating, setIsAnimating] = useState(false)
+  const [showEnhanced, setShowEnhanced] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const currentBucketIndex = buckets.findIndex(b => b.id === selectedBucketId)
@@ -212,6 +215,8 @@ export function ImageCarousel({
                         const isCenter = offset === 0
                         const isAdjacent = Math.abs(offset) === 1
                         const isVisible = Math.abs(offset) <= 2
+                        const hasEnhanced = !!(image.enhancedS3Key && image.enhancedS3Url)
+                        const displayUrl = (showEnhanced && hasEnhanced) ? image.enhancedS3Url! : image.s3Url
 
                         return (
                           <div
@@ -235,26 +240,45 @@ export function ImageCarousel({
                               }
                             }}
                           >
-                            <img
-                              src={image.s3Url}
-                              alt={image.label || image.filename}
-                              className="object-contain rounded-xl shadow-lg transition-all w-full"
-                              style={{
-                                maxHeight: isCenter ? 'min(50vh, 400px)' : 'min(20vh, 160px)'
-                              }}
-                              loading={
-                                Math.abs(bucketIdx - currentBucketIndex) <= 1 &&
-                                Math.abs(imageIdx - bucketImageIndex) <= 2
-                                  ? "eager"
-                                  : "lazy"
-                              }
-                            />
+                            <div className="relative">
+                              <img
+                                src={displayUrl}
+                                alt={image.label || image.filename}
+                                className="object-contain rounded-xl shadow-lg transition-all w-full"
+                                style={{
+                                  maxHeight: isCenter ? 'min(50vh, 400px)' : 'min(20vh, 160px)'
+                                }}
+                                loading={
+                                  Math.abs(bucketIdx - currentBucketIndex) <= 1 &&
+                                    Math.abs(imageIdx - bucketImageIndex) <= 2
+                                    ? "eager"
+                                    : "lazy"
+                                }
+                              />
+                            </div>
 
-                            {/* Image Counter - only show on center image */}
+                            {/* Image Counter and Toggle - only show on center image */}
                             {isCenter && (
-                              <div className="mt-4 flex items-center gap-2 text-muted-foreground">
-                                <span className="text-3xl font-light">{imageIdx + 1}</span>
-                                <span className="text-lg">/ {bucket.images.length}</span>
+                              <div className="mt-4 flex items-center gap-4">
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <span className="text-3xl font-light">{imageIdx + 1}</span>
+                                  <span className="text-lg">/ {bucket.images.length}</span>
+                                </div>
+                                {/* Enhanced Toggle Button */}
+                                {hasEnhanced && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setShowEnhanced(!showEnhanced)
+                                    }}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${showEnhanced
+                                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md'
+                                        : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                                      }`}
+                                  >
+                                    {showEnhanced ? 'Enhanced' : 'Original'}
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>

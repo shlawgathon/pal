@@ -55,6 +55,8 @@ export async function GET(
                     label: f.label,
                     eloScore: f.eloScore,
                     isTopPick: f.isTopPick,
+                    enhancedS3Key: f.enhancedS3Key,
+                    enhancedS3Url: f.enhancedS3Url,
                 })),
                 videos: videos.map(f => ({
                     id: f.id,
@@ -63,6 +65,8 @@ export async function GET(
                     label: f.label,
                     eloScore: f.eloScore,
                     isTopPick: f.isTopPick,
+                    enhancedS3Key: f.enhancedS3Key,
+                    enhancedS3Url: f.enhancedS3Url,
                 })),
             };
         });
@@ -77,6 +81,8 @@ export async function GET(
                 label: f.label,
                 eloScore: f.eloScore,
                 isTopPick: f.isTopPick,
+                enhancedS3Key: f.enhancedS3Key,
+                enhancedS3Url: f.enhancedS3Url,
             }));
 
         return NextResponse.json({

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { ArrowLeft, Loader2, Sparkles } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { ImageCarousel } from "@/components/image-carousel"
 
@@ -14,6 +14,8 @@ interface MediaImage {
   label?: string
   eloScore: number
   isTopPick: boolean
+  enhancedS3Key?: string | null
+  enhancedS3Url?: string | null
 }
 
 interface Bucket {
@@ -51,6 +53,7 @@ export default function GalleryPage() {
   const [selectedBucketId, setSelectedBucketId] = useState<string | null>(null)
   const [isImageExpanded, setIsImageExpanded] = useState(false)
   const [expandedImage, setExpandedImage] = useState<MediaImage | null>(null)
+  const [showEnhancedExpanded, setShowEnhancedExpanded] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -120,6 +123,8 @@ export default function GalleryPage() {
   const handleImageClick = (image: MediaImage) => {
     setExpandedImage(image)
     setIsImageExpanded(true)
+    // Auto-enable enhanced view if available
+    setShowEnhancedExpanded(!!(image.enhancedS3Key && image.enhancedS3Url))
   }
 
   if (isLoading && !data) {
@@ -263,6 +268,26 @@ export default function GalleryPage() {
           {/* Metadata Sidebar */}
           <div className="fixed right-0 top-0 bottom-0 w-80 bg-white border-l border-border shadow-2xl z-[60] p-6 overflow-y-auto pointer-events-auto">
             <div className="space-y-4">
+              {/* Enhanced Toggle */}
+              {expandedImage.enhancedS3Key && expandedImage.enhancedS3Url && (
+                <div className="pb-4 border-b border-border">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                      <span className="text-sm font-semibold">Highly Ranked</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowEnhancedExpanded(!showEnhancedExpanded)}
+                    className={`w-full px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${showEnhancedExpanded
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md'
+                        : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                      }`}
+                  >
+                    {showEnhancedExpanded ? 'Showing Enhanced' : 'Show Enhanced'}
+                  </button>
+                </div>
+              )}
               {/* Metadata */}
               <div className="space-y-3">
                 <div>
@@ -291,15 +316,21 @@ export default function GalleryPage() {
           </div>
           {/* Expanded Image */}
           <div className="fixed inset-0 right-80 z-50 flex items-center justify-center p-8 pointer-events-none">
-            <img
-              src={expandedImage.s3Url}
-              alt={expandedImage.label || expandedImage.filename}
-              className="w-full h-full object-contain shadow-2xl rounded-lg pointer-events-auto cursor-zoom-out"
-              onClick={() => {
-                setIsImageExpanded(false)
-                setExpandedImage(null)
-              }}
-            />
+            <div className="relative w-full h-full">
+              <img
+                src={
+                  showEnhancedExpanded && expandedImage.enhancedS3Url
+                    ? expandedImage.enhancedS3Url
+                    : expandedImage.s3Url
+                }
+                alt={expandedImage.label || expandedImage.filename}
+                className="w-full h-full object-contain shadow-2xl rounded-lg pointer-events-auto cursor-zoom-out"
+                onClick={() => {
+                  setIsImageExpanded(false)
+                  setExpandedImage(null)
+                }}
+              />
+            </div>
           </div>
         </>
       )}
