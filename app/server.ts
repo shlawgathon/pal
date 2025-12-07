@@ -12,7 +12,9 @@ import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
 import { initUploadSession, handleChunk, cleanupSession } from './src/lib/upload-handler';
-require('dotenv').config({ path: '.env' });
+require('dotenv').config();
+const BUCKET_NAME = process.env.AWS_S3_BUCKET || 'pal-media-storage';
+console.log(BUCKET_NAME)
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
