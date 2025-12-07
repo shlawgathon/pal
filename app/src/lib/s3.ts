@@ -7,21 +7,21 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // Cloudflare R2 endpoint (if using R2) or undefined for standard AWS S3
-const R2_ENDPOINT = 'https://9863c39a384de0942d9656f9241489dc.r2.cloudflarestorage.com';
-const R2_PUBLIC_URL = 'https://pal.images.growly.gg';
+const R2_ENDPOINT = process.env.R2_ENDPOINT;
+const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL;
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'auto', // R2 uses 'auto' for region
     endpoint: R2_ENDPOINT, // e.g., https://<account_id>.r2.cloudflarestorage.com
     credentials: {
-        accessKeyId: require('dotenv').config()['AWS_SECRET_ACCESS_ID'],
-        secretAccessKey: require('dotenv').config()['AWS_SECRET_ACCESS_KEY'],
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
     },
     // R2 requires this to be set for S3 compatibility
     ...(R2_ENDPOINT && { forcePathStyle: true }),
 });
 
-const BUCKET_NAME = 'pal';
+const BUCKET_NAME = process.env.AWS_S3_BUCKET || 'pal-media-storage';
 
 /**
  * Generate the public URL for an object

@@ -45,7 +45,7 @@ async function areSameTake(
     buffer2: Buffer, mimeType2: string
 ): Promise<boolean> {
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(require('dotenv').config()['GEMINI_API_KEY']);
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
 
     const prompt = `We are trying to dedup a list of images. You are acting as an agent that is part of a larger system to rank takes of the same shot.
