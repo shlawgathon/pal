@@ -12,6 +12,7 @@ import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
 import { initUploadSession, handleChunk, cleanupSession } from './src/lib/upload-handler';
+require('dotenv').config({ path: '.env' });
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
