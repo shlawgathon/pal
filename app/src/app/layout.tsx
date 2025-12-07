@@ -6,9 +6,8 @@ import { ThemeProvider } from "@/components/theme-provider"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Photo Rankings",
-  description: "A simple photo ranking gallery",
-  generator: "v0.app",
+  title: "PAL",
+  description: "Picks and labels.",
   icons: {
     icon: [
       {
