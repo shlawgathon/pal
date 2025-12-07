@@ -2,7 +2,7 @@ import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { IMAGE_COMPARISON_CRITERIA, VIDEO_COMPARISON_CRITERIA } from './types';
 
 // Initialize Gemini client
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const genAI = new GoogleGenerativeAI(require('dotenv').config()['GEMINI_API_KEY']);
 
 // Models
 const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });

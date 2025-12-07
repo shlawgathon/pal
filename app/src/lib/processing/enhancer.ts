@@ -8,7 +8,7 @@ import { downloadFromS3, uploadToS3, generateS3Key } from '../s3';
 import type { MediaFile } from '@prisma/client';
 
 // Initialize the Gemini client for image generation
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+const ai = new GoogleGenAI({ apiKey: require('dotenv').config()['GEMINI_API_KEY'] });
 
 export interface EnhancementResult {
     mediaFileId: string;
